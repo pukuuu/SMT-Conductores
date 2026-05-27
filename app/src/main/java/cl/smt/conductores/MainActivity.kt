@@ -3,19 +3,21 @@ package cl.smt.conductores
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtUser
 import cl.smt.conductores.screens.LoginScreen
 import cl.smt.conductores.screens.PanelScreen
-import cl.smt.conductores.screens.PedidosScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             SMTConductoresTheme {
                 AppRoot()
@@ -27,47 +29,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppRoot() {
     val context = LocalContext.current
-
-    var user by remember {
-        mutableStateOf<SmtUser?>(SessionManager.getUser(context))
-    }
-
-    var screen by remember {
-        mutableStateOf("panel")
-    }
+    var user by remember { mutableStateOf<SmtUser?>(SessionManager.getUser(context)) }
 
     if (user == null) {
-        LoginScreen(
-            onLoginSuccess = {
-                user = SessionManager.getUser(context)
-                screen = "panel"
+        LoginScreen(onLoginSuccess = { user = SessionManager.getUser(context) })
+    } else {
+        PanelScreen(
+            onCrearRutaClick = {},
+            onPerfilClick = {},
+            onHistorialClick = {},
+            onSesionExpirada = {
+                SessionManager.clear(context)
+                user = null
             }
         )
-        return
-    }
-
-    when (screen) {
-        "panel" -> {
-            PanelScreen(
-                user = user!!,
-                onVerPedidos = {
-                    screen = "pedidos"
-                },
-                onLogout = {
-                    SessionManager.clear(context)
-                    user = null
-                    screen = "panel"
-                }
-            )
-        }
-
-        "pedidos" -> {
-            PedidosScreen(
-                user = user!!,
-                onBack = {
-                    screen = "panel"
-                }
-            )
-        }
     }
 }

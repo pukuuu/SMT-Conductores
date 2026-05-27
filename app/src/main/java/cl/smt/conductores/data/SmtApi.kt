@@ -11,15 +11,16 @@ import java.net.URL
 
 object SmtApi {
 
-    private const val BASE_URL = "https://smt-seguimientos.cl/wp-json/smt-chofer/v1"
+    private const val AUTH_URL = "https://backend.smtransportes.app/wp-json/smt/v1"
+    private const val CHOFER_URL = "https://backend.smtransportes.app/wp-json/smt-chofer/v1"
 
     suspend fun login(
-        email: String,
+        usuario: String,
         password: String
     ): LoginResponse = withContext(Dispatchers.IO) {
 
         try {
-            val url = URL("$BASE_URL/login-token")
+            val url = URL("$AUTH_URL/login")
             val conn = url.openConnection() as HttpURLConnection
 
             conn.requestMethod = "POST"
@@ -27,7 +28,7 @@ object SmtApi {
             conn.setRequestProperty("Content-Type", "application/json")
 
             val body = JSONObject().apply {
-                put("email", email)
+                put("username", usuario)
                 put("password", password)
             }
 
@@ -40,10 +41,10 @@ object SmtApi {
 
             val json = JSONObject(response)
 
-            if (!json.optBoolean("ok")) {
+            if (!json.optBoolean("success")) {
                 return@withContext LoginResponse(
                     ok = false,
-                    mensaje = json.optString("mensaje")
+                    mensaje = json.optString("message", "Login inválido")
                 )
             }
 
@@ -51,6 +52,7 @@ object SmtApi {
 
             LoginResponse(
                 ok = true,
+                mensaje = "Login correcto",
                 user = SmtUser(
                     id = userJson.optInt("id"),
                     name = userJson.optString("name"),
@@ -63,7 +65,6 @@ object SmtApi {
             )
 
         } catch (e: Exception) {
-
             LoginResponse(
                 ok = false,
                 mensaje = e.message ?: "Error desconocido"
@@ -76,23 +77,13 @@ object SmtApi {
     ): PedidosResponse = withContext(Dispatchers.IO) {
 
         try {
-
-            val url = URL("$BASE_URL/mispedidos")
-
+            val url = URL("$AUTH_URL/mis-pedidos?user_id=${user.id}&token=${user.token}")
             val conn = url.openConnection() as HttpURLConnection
 
-            conn.requestMethod = "POST"
-            conn.doOutput = true
+            conn.requestMethod = "GET"
             conn.setRequestProperty("Content-Type", "application/json")
-
-            val body = JSONObject().apply {
-                put("user_id", user.id)
-                put("token", user.token)
-            }
-
-            OutputStreamWriter(conn.outputStream).use {
-                it.write(body.toString())
-            }
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
 
             val response = conn.inputStream.bufferedReader()
                 .use(BufferedReader::readText)
@@ -102,16 +93,14 @@ object SmtApi {
             if (!json.optBoolean("ok")) {
                 return@withContext PedidosResponse(
                     ok = false,
-                    mensaje = json.optString("mensaje")
+                    mensaje = json.optString("mensaje", "No se pudieron cargar pedidos")
                 )
             }
 
             val pedidosJson = json.getJSONArray("pedidos")
-
             val pedidos = mutableListOf<PedidoSmt>()
 
             for (i in 0 until pedidosJson.length()) {
-
                 val p = pedidosJson.getJSONObject(i)
 
                 pedidos.add(
@@ -138,11 +127,11 @@ object SmtApi {
 
             PedidosResponse(
                 ok = true,
+                mensaje = "Pedidos cargados",
                 pedidos = pedidos
             )
 
         } catch (e: Exception) {
-
             PedidosResponse(
                 ok = false,
                 mensaje = e.message ?: "Error desconocido"

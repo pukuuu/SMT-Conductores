@@ -4,7 +4,6 @@ import android.content.Context
 import org.json.JSONObject
 
 object SessionManager {
-
     private const val PREFS = "smt_session"
     private const val KEY_USER = "user"
 
@@ -27,12 +26,10 @@ object SessionManager {
 
     fun getUser(context: Context): SmtUser? {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_USER, null)
-            ?: return null
+            .getString(KEY_USER, null) ?: return null
 
         return try {
             val json = JSONObject(raw)
-
             SmtUser(
                 id = json.optInt("id"),
                 name = json.optString("name"),
@@ -42,7 +39,7 @@ object SessionManager {
                 sucursal = json.optString("sucursal"),
                 traccarId = json.optString("traccarId")
             )
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -52,9 +49,5 @@ object SessionManager {
             .edit()
             .clear()
             .apply()
-    }
-
-    fun isLoggedIn(context: Context): Boolean {
-        return getUser(context) != null
     }
 }

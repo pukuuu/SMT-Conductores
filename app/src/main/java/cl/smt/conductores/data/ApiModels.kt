@@ -18,3 +18,9 @@ data class PedidosResponse(
     val mensaje: String = "",
     val pedidos: List<PedidoSmt> = emptyList()
 )
+
+data class PatentesResponse(
+    val ok: Boolean,
+    val mensaje: String = "",
+    val patentes: List<String> = emptyList()
+)
