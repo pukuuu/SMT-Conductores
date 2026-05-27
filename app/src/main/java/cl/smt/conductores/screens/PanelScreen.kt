@@ -10,6 +10,7 @@ import cl.smt.conductores.data.SmtUser
 @Composable
 fun PanelScreen(
     user: SmtUser,
+    onVerPedidos: () -> Unit,
     onLogout: () -> Unit
 ) {
 
@@ -38,7 +39,7 @@ fun PanelScreen(
         }
 
         Button(
-            onClick = { },
+            onClick = onVerPedidos,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Ver pedidos")

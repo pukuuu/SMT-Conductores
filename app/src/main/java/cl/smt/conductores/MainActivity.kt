@@ -9,6 +9,7 @@ import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtUser
 import cl.smt.conductores.screens.LoginScreen
 import cl.smt.conductores.screens.PanelScreen
+import cl.smt.conductores.screens.PedidosScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
 
 class MainActivity : ComponentActivity() {
@@ -31,19 +32,42 @@ fun AppRoot() {
         mutableStateOf<SmtUser?>(SessionManager.getUser(context))
     }
 
+    var screen by remember {
+        mutableStateOf("panel")
+    }
+
     if (user == null) {
         LoginScreen(
             onLoginSuccess = {
                 user = SessionManager.getUser(context)
+                screen = "panel"
             }
         )
-    } else {
-        PanelScreen(
-            user = user!!,
-            onLogout = {
-                SessionManager.clear(context)
-                user = null
-            }
-        )
+        return
+    }
+
+    when (screen) {
+        "panel" -> {
+            PanelScreen(
+                user = user!!,
+                onVerPedidos = {
+                    screen = "pedidos"
+                },
+                onLogout = {
+                    SessionManager.clear(context)
+                    user = null
+                    screen = "panel"
+                }
+            )
+        }
+
+        "pedidos" -> {
+            PedidosScreen(
+                user = user!!,
+                onBack = {
+                    screen = "panel"
+                }
+            )
+        }
     }
 }
