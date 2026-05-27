@@ -3,45 +3,47 @@ package cl.smt.conductores
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import cl.smt.conductores.data.SessionManager
+import cl.smt.conductores.data.SmtUser
+import cl.smt.conductores.screens.LoginScreen
+import cl.smt.conductores.screens.PanelScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+
         setContent {
             SMTConductoresTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                AppRoot()
             }
         }
     }
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+fun AppRoot() {
+    val context = LocalContext.current
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    SMTConductoresTheme {
-        Greeting("Android")
+    var user by remember {
+        mutableStateOf<SmtUser?>(SessionManager.getUser(context))
+    }
+
+    if (user == null) {
+        LoginScreen(
+            onLoginSuccess = {
+                user = SessionManager.getUser(context)
+            }
+        )
+    } else {
+        PanelScreen(
+            user = user!!,
+            onLogout = {
+                SessionManager.clear(context)
+                user = null
+            }
+        )
     }
 }
