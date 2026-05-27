@@ -138,4 +138,17 @@ object SmtApi {
             )
         }
     }
+    suspend fun cerrarEntrega(
+        user: SmtUser,
+        postId: Int,
+        temperatura: String,
+        horaGuia: String,
+        foto: java.io.File
+    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
+
+        ApiSimpleResponse(
+            ok = false,
+            mensaje = "Cerrar entrega pendiente implementar"
+        )
+    }
 }
