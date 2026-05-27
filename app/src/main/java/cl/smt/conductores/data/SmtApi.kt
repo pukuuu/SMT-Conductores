@@ -151,4 +151,93 @@ object SmtApi {
             mensaje = "Cerrar entrega pendiente implementar"
         )
     }
+    suspend fun crearPedido(
+        user: SmtUser,
+        factura: String,
+        paciente: String,
+        direccion: String,
+        comuna: String,
+        telefono: String,
+        tipoEnvio: String,
+        patente: String
+    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
+
+        try {
+            val url = URL("$AUTH_URL/crearpedido")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val body = JSONObject().apply {
+                put("user_id", user.id)
+                put("token", user.token)
+                put("factura", factura)
+                put("paciente", paciente)
+                put("direccion", direccion)
+                put("ciudad_region", comuna)
+                put("telefono", telefono)
+                put("tipo_envio", tipoEnvio)
+                put("patente", patente)
+            }
+
+            OutputStreamWriter(conn.outputStream).use {
+                it.write(body.toString())
+            }
+
+            val response = conn.inputStream.bufferedReader()
+                .use(BufferedReader::readText)
+
+            val json = JSONObject(response)
+
+            ApiSimpleResponse(
+                ok = json.optBoolean("ok"),
+                mensaje = json.optString("mensaje", "Respuesta sin mensaje")
+            )
+
+        } catch (e: Exception) {
+            ApiSimpleResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
+        }
+    }
+    suspend fun cargarPatentes(
+        user: SmtUser
+    ): List<String> = withContext(Dispatchers.IO) {
+
+        try {
+            val url = URL("$AUTH_URL/patentes?user_id=${user.id}&token=${user.token}")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val response = conn.inputStream.bufferedReader()
+                .use(BufferedReader::readText)
+
+            val json = JSONObject(response)
+
+            if (!json.optBoolean("ok")) {
+                return@withContext emptyList()
+            }
+
+            val arr = json.getJSONArray("patentes")
+            val patentes = mutableListOf<String>()
+
+            for (i in 0 until arr.length()) {
+                patentes.add(arr.optString(i))
+            }
+
+            patentes
+
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 }

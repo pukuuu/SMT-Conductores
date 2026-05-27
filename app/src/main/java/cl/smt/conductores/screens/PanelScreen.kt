@@ -66,6 +66,7 @@ fun PanelScreen(
     onCrearRutaClick: () -> Unit,
     onPerfilClick: () -> Unit,
     onHistorialClick: () -> Unit = {},
+    onCerrarSesionClick: () -> Unit = {},
     onSesionExpirada: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -156,6 +157,13 @@ fun PanelScreen(
                         DropdownMenuItem(text = { Text("Historial") }, onClick = { mostrarMenu.value = false; onHistorialClick() })
                         DropdownMenuItem(text = { Text("Perfil") }, onClick = { mostrarMenu.value = false; onPerfilClick() })
                         DropdownMenuItem(text = { Text("Actualizar") }, onClick = { mostrarMenu.value = false; cargarPedidos() })
+                        DropdownMenuItem(
+                            text = { Text("Cerrar sesión") },
+                            onClick = {
+                                mostrarMenu.value = false
+                                onCerrarSesionClick()
+                            }
+                        )
                     }
                 }
             }
