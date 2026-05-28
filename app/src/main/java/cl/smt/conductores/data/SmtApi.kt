@@ -18,7 +18,6 @@ object SmtApi {
         usuario: String,
         password: String
     ): LoginResponse = withContext(Dispatchers.IO) {
-
         try {
             val url = URL("$AUTH_URL/login")
             val conn = url.openConnection() as HttpURLConnection
@@ -75,7 +74,6 @@ object SmtApi {
     suspend fun cargarMisPedidos(
         user: SmtUser
     ): PedidosResponse = withContext(Dispatchers.IO) {
-
         try {
             val url = URL("$AUTH_URL/mis-pedidos?user_id=${user.id}&token=${user.token}")
             val conn = url.openConnection() as HttpURLConnection
@@ -138,6 +136,186 @@ object SmtApi {
             )
         }
     }
+
+    suspend fun actualizarPedidoEstado(
+        user: SmtUser,
+        postId: Int,
+        estado: String
+    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$AUTH_URL/actualizarpedido")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val body = JSONObject().apply {
+                put("user_id", user.id)
+                put("token", user.token)
+                put("post_id", postId)
+                put("estado", estado)
+            }
+
+            OutputStreamWriter(conn.outputStream).use {
+                it.write(body.toString())
+            }
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
+
+            val okReal = json.optBoolean(
+                "ok",
+                json.optBoolean("success", statusCode in 200..299)
+            )
+
+            val mensaje = json.optString(
+                "mensaje",
+                json.optString(
+                    "message",
+                    if (okReal) "Pedido actualizado" else "Error actualizando pedido"
+                )
+            )
+
+            ApiSimpleResponse(
+                ok = statusCode in 200..299 && okReal,
+                mensaje = mensaje
+            )
+
+        } catch (e: Exception) {
+            ApiSimpleResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
+        }
+    }
+
+    suspend fun iniciarRuta(
+        user: SmtUser
+    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
+        try {
+            val pedidosRes = cargarMisPedidos(user)
+
+            if (!pedidosRes.ok) {
+                return@withContext ApiSimpleResponse(
+                    ok = false,
+                    mensaje = pedidosRes.mensaje
+                )
+            }
+
+            val pendientes = pedidosRes.pedidos.filter {
+                it.estado.equals("pendiente", true)
+            }
+
+            if (pendientes.isEmpty()) {
+                return@withContext ApiSimpleResponse(
+                    ok = false,
+                    mensaje = "No hay pedidos pendientes"
+                )
+            }
+
+            notificarInicioRuta(user)
+            var errores = 0
+
+            pendientes.forEach { pedido ->
+                val res = actualizarPedidoEstado(
+                    user = user,
+                    postId = pedido.id,
+                    estado = "en_ruta"
+                )
+
+                if (!res.ok) {
+                    errores++
+                }
+            }
+
+            if (errores > 0) {
+                return@withContext ApiSimpleResponse(
+                    ok = false,
+                    mensaje = "No se pudieron iniciar todos los pedidos"
+                )
+            }
+
+            notificarInicioRuta(user)
+
+            ApiSimpleResponse(
+                ok = true,
+                mensaje = "Ruta iniciada correctamente"
+            )
+
+        } catch (e: Exception) {
+            ApiSimpleResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
+        }
+    }
+
+    private suspend fun notificarInicioRuta(
+        user: SmtUser
+    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$AUTH_URL/notificar-inicio-ruta")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val body = JSONObject().apply {
+                put("user_id", user.id)
+                put("token", user.token)
+            }
+
+            OutputStreamWriter(conn.outputStream).use {
+                it.write(body.toString())
+            }
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
+
+            ApiSimpleResponse(
+                ok = statusCode in 200..299,
+                mensaje = json.optString(
+                    "mensaje",
+                    json.optString(
+                        "message",
+                        if (statusCode in 200..299) {
+                            "Inicio de ruta notificado"
+                        } else {
+                            "Error notificando inicio de ruta"
+                        }
+                    )
+                )
+            )
+
+        } catch (e: Exception) {
+            ApiSimpleResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
+        }
+    }
+
     suspend fun cerrarEntrega(
         user: SmtUser,
         postId: Int,
@@ -188,10 +366,7 @@ object SmtApi {
 
             val output = conn.outputStream
 
-            fun writeTextField(
-                name: String,
-                value: String
-            ) {
+            fun writeTextField(name: String, value: String) {
                 output.write((twoHyphens + boundary + lineEnd).toByteArray())
                 output.write(
                     ("Content-Disposition: form-data; name=\"$name\"$lineEnd")
@@ -202,10 +377,7 @@ object SmtApi {
                 output.write(lineEnd.toByteArray())
             }
 
-            fun writeFileField(
-                name: String,
-                file: java.io.File
-            ) {
+            fun writeFileField(name: String, file: java.io.File) {
                 output.write((twoHyphens + boundary + lineEnd).toByteArray())
                 output.write(
                     (
@@ -245,15 +417,10 @@ object SmtApi {
             val responseText = if (statusCode in 200..299) {
                 conn.inputStream.bufferedReader().use(BufferedReader::readText)
             } else {
-                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
-                    ?: ""
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
             }
 
-            val json = if (responseText.isNotBlank()) {
-                JSONObject(responseText)
-            } else {
-                JSONObject()
-            }
+            val json = if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
 
             val ok = json.optBoolean(
                 "ok",
@@ -284,6 +451,7 @@ object SmtApi {
             )
         }
     }
+
     suspend fun crearPedido(
         user: SmtUser,
         factura: String,
@@ -294,7 +462,6 @@ object SmtApi {
         tipoEnvio: String,
         patente: String
     ): ApiSimpleResponse = withContext(Dispatchers.IO) {
-
         try {
             val url = URL("$AUTH_URL/crearpedido")
             val conn = url.openConnection() as HttpURLConnection
@@ -326,22 +493,14 @@ object SmtApi {
             val responseText = if (statusCode in 200..299) {
                 conn.inputStream.bufferedReader().use(BufferedReader::readText)
             } else {
-                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
-                    ?: ""
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
             }
 
-            val json = if (responseText.isNotBlank()) {
-                JSONObject(responseText)
-            } else {
-                JSONObject()
-            }
+            val json = if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
 
             val mensajeApi = json.optString(
                 "mensaje",
-                json.optString(
-                    "message",
-                    "Error al crear pedido"
-                )
+                json.optString("message", "Error al crear pedido")
             )
 
             val mensajeLimpio = when {
@@ -350,9 +509,7 @@ object SmtApi {
                         mensajeApi.contains("already", true) -> "Guía ya existe"
 
                 mensajeApi.contains("patente", true) -> "Patente inválida"
-
                 mensajeApi.contains("token", true) -> "Sesión expirada"
-
                 mensajeApi.isBlank() -> "Error al crear pedido"
 
                 else -> mensajeApi
@@ -374,10 +531,10 @@ object SmtApi {
             )
         }
     }
+
     suspend fun cargarPatentes(
         user: SmtUser
     ): List<String> = withContext(Dispatchers.IO) {
-
         try {
             val url = URL("$AUTH_URL/patentes?user_id=${user.id}&token=${user.token}")
             val conn = url.openConnection() as HttpURLConnection
@@ -407,71 +564,6 @@ object SmtApi {
 
         } catch (e: Exception) {
             emptyList()
-        }
-    }
-
-    suspend fun iniciarRuta(
-        user: SmtUser
-    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
-
-        try {
-            val url = URL("$AUTH_URL/notificar-inicio-ruta")
-            val conn = url.openConnection() as HttpURLConnection
-
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("X-SMT-Token", user.token)
-            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
-
-            val body = JSONObject().apply {
-                put("user_id", user.id)
-                put("token", user.token)
-            }
-
-            OutputStreamWriter(conn.outputStream).use {
-                it.write(body.toString())
-            }
-
-            val statusCode = conn.responseCode
-
-            val responseText = if (statusCode in 200..299) {
-                conn.inputStream.bufferedReader()
-                    .use(BufferedReader::readText)
-            } else {
-                conn.errorStream?.bufferedReader()
-                    ?.use(BufferedReader::readText)
-                    ?: ""
-            }
-
-            val json = if (responseText.isNotBlank()) {
-                JSONObject(responseText)
-            } else {
-                JSONObject()
-            }
-
-            ApiSimpleResponse(
-                ok = statusCode in 200..299,
-                mensaje = json.optString(
-                    "mensaje",
-                    json.optString(
-                        "message",
-                        if (statusCode in 200..299) {
-                            "Ruta iniciada"
-                        } else {
-                            "Error iniciando ruta"
-                        }
-                    )
-                )
-            )
-
-        } catch (e: Exception) {
-
-            ApiSimpleResponse(
-                ok = false,
-                mensaje = e.message ?: "Error desconocido"
-            )
         }
     }
 }
