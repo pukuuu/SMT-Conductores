@@ -1,54 +1,25 @@
 package cl.smt.conductores.screens
 
-import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import cl.smt.conductores.components.Camera2BarcodeScanner
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
-import cl.smt.conductores.scanner.ScanActivity
-import com.google.zxing.client.android.Intents
-import com.journeyapps.barcodescanner.ScanOptions
+import com.google.mlkit.vision.barcode.common.Barcode
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CrearRutaScreen(
-    onBack: () -> Unit
-) {
+fun CrearRutaScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val user = SessionManager.getUser(context)
@@ -68,30 +39,48 @@ fun CrearRutaScreen(
 
     var cargando by remember { mutableStateOf(false) }
     var mensaje by remember { mutableStateOf("") }
-
-    val tipos = listOf("A", "B", "C")
-
-    val scanLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val contents = result.data?.getStringExtra(Intents.Scan.RESULT)
-
-            if (!contents.isNullOrBlank()) {
-                factura = contents.take(40)
-                mensaje = "Guía escaneada"
-            }
-        }
-    }
+    var mostrandoScanner by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (user != null) {
             patentes = SmtApi.cargarPatentes(user)
-
             if (patentes.isNotEmpty() && patente.isBlank()) {
                 patente = patentes.first()
             }
         }
+    }
+
+    if (mostrandoScanner) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            Camera2BarcodeScanner(
+                barcodeFormat = Barcode.FORMAT_PDF417,
+                modifier = Modifier.fillMaxSize(),
+                onCodeScanned = { codigo ->
+                    factura = codigo.take(40)
+                    mensaje = "Guía escaneada"
+                    mostrandoScanner = false
+                },
+                onError = { error ->
+                    mensaje = error
+                }
+            )
+
+            OutlinedButton(
+                onClick = { mostrandoScanner = false },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+                    .align(androidx.compose.ui.Alignment.BottomCenter)
+            ) {
+                Text("Cancelar escaneo")
+            }
+        }
+
+        return
     }
 
     Column(
@@ -110,39 +99,22 @@ fun CrearRutaScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(Modifier.height(28.dp))
 
         Text(
-            "Crear ruta",
+            text = "Crear ruta",
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White
         )
 
         Button(
             onClick = {
-                val options = ScanOptions().apply {
-                    setDesiredBarcodeFormats(
-                        ScanOptions.PDF_417,
-                        ScanOptions.QR_CODE,
-                        ScanOptions.CODE_128
-                    )
-                    setPrompt("Acerca la cámara al código")
-                    setBeepEnabled(true)
-                    setOrientationLocked(false)
-                    setCameraId(0)
-                    setBarcodeImageEnabled(true)
-                    captureActivity = ScanActivity::class.java
-
-                    addExtra("SCAN_WIDTH", 1200)
-                    addExtra("SCAN_HEIGHT", 900)
-                }
-
-                val intent = options.createScanIntent(context)
-                scanLauncher.launch(intent)
+                mensaje = ""
+                mostrandoScanner = true
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Escanear guía")
+            Text("Escanear guía PDF417")
         }
 
         OutlinedTextField(
@@ -239,7 +211,7 @@ fun CrearRutaScreen(
                 expanded = tipoExpandido,
                 onDismissRequest = { tipoExpandido = false }
             ) {
-                tipos.forEach { tipo ->
+                listOf("A", "B", "C").forEach { tipo ->
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -261,15 +233,11 @@ fun CrearRutaScreen(
 
         if (mensaje.isNotBlank()) {
             Text(
-                mensaje,
+                text = mensaje,
                 color = if (
                     mensaje.contains("correct", true) ||
                     mensaje.contains("escaneada", true)
-                ) {
-                    Color(0xFF00C853)
-                } else {
-                    Color.Red
-                }
+                ) Color(0xFF00C853) else Color.Red
             )
         }
 
