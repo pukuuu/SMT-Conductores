@@ -10,41 +10,70 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 object WorkerEnvio {
+
     private var enviando = false
 
-    fun procesarCola(context: Context) {
+    fun procesarCola(
+        context: Context,
+        onResultado: ((Boolean, String) -> Unit)? = null
+    ) {
         if (enviando) return
-        val user = SessionManager.getUser(context) ?: return
+
+        val user = SessionManager.getUser(context)
+
+        if (user == null) {
+            onResultado?.invoke(false, "Sesión inválida")
+            return
+        }
+
         val entrega = ColaEntregas.obtenerEntregas(context)
-            .firstOrNull { it.estado == "pendiente" || it.estado == "error" } ?: return
+            .firstOrNull {
+                it.estado == "pendiente" || it.estado == "error"
+            }
+
+        if (entrega == null) {
+            onResultado?.invoke(true, "No hay entregas pendientes")
+            return
+        }
 
         enviando = true
+
         entrega.estado = "enviando"
         ColaEntregas.actualizarEntrega(context, entrega)
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                val foto = File(entrega.fotoPath)
+
                 val res = SmtApi.cerrarEntrega(
                     user = user,
                     postId = entrega.postId,
                     temperatura = entrega.temperatura,
                     horaGuia = entrega.horaGuia,
-                    foto = File(entrega.fotoPath)
+                    foto = foto
                 )
+
                 if (res.ok) {
                     ColaEntregas.eliminarEntrega(context, entrega.idLocal)
+                    onResultado?.invoke(true, res.mensaje)
                 } else {
                     marcarError(context, entrega)
+                    onResultado?.invoke(false, res.mensaje)
                 }
-            } catch (_: Exception) {
+
+            } catch (e: Exception) {
                 marcarError(context, entrega)
+                onResultado?.invoke(false, e.message ?: "Error enviando entrega")
             } finally {
                 enviando = false
             }
         }
     }
 
-    private fun marcarError(context: Context, entrega: EntregaPendiente) {
+    private fun marcarError(
+        context: Context,
+        entrega: EntregaPendiente
+    ) {
         entrega.estado = "error"
         entrega.intentos++
         ColaEntregas.actualizarEntrega(context, entrega)

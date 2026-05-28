@@ -79,6 +79,11 @@ fun PanelScreen(
     val accionando = remember { mutableStateOf(false) }
     val mensaje = remember { mutableStateOf("") }
     val gpsActivo = remember { mutableStateOf(GpsController.estaActivo(context)) }
+    val hayPendientes = remember(pedidos.value) {
+        pedidos.value.any {
+            it.estado.equals("pendiente", true)
+        }
+    }
     val mostrarMenu = remember { mutableStateOf(false) }
     val mostrarEntrega = remember { mutableStateOf(false) }
     val pedidoEntrega = remember { mutableStateOf<PedidoSmt?>(null) }
@@ -189,6 +194,51 @@ fun PanelScreen(
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF1E3A8A), checkedTrackColor = Color(0xFFAEC5FF))
                     )
+                    if (hayPendientes) {
+
+                        Button(
+                            onClick = {
+
+                                if (user == null) {
+                                    mensaje.value = "Sesión inválida"
+                                    return@Button
+                                }
+
+                                scope.launch {
+
+                                    accionando.value = true
+
+                                    val res = SmtApi.iniciarRuta(user)
+
+                                    mensaje.value = res.mensaje
+
+                                    if (res.ok) {
+
+                                        val nuevos = SmtApi.cargarMisPedidos(user)
+
+                                        if (nuevos.ok) {
+                                            pedidos.value = nuevos.pedidos
+                                        }
+
+                                        if (!gpsActivo.value) {
+                                            GpsController.iniciar(context)
+                                            gpsActivo.value = true
+                                        }
+                                    }
+
+                                    accionando.value = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+
+                            if (accionando.value) {
+                                CircularProgressIndicator()
+                            } else {
+                                Text("Iniciar ruta")
+                            }
+                        }
+                    }
                 }
             }
 

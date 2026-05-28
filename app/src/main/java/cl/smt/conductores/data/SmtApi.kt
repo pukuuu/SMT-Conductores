@@ -146,10 +146,143 @@ object SmtApi {
         foto: java.io.File
     ): ApiSimpleResponse = withContext(Dispatchers.IO) {
 
-        ApiSimpleResponse(
-            ok = false,
-            mensaje = "Cerrar entrega pendiente implementar"
-        )
+        val boundary = "SMTBoundary${System.currentTimeMillis()}"
+        val lineEnd = "\r\n"
+        val twoHyphens = "--"
+
+        fun limpiarMensaje(mensaje: String): String {
+            return when {
+                mensaje.contains("token", true) -> "Sesión expirada"
+                mensaje.contains("foto", true) -> "Error con la foto"
+                mensaje.contains("temperatura", true) -> "Temperatura inválida"
+                mensaje.contains("hora", true) -> "Hora inválida"
+                mensaje.contains("pedido", true) -> "Pedido inválido"
+                mensaje.isBlank() -> "Error cerrando entrega"
+                else -> mensaje
+            }
+        }
+
+        try {
+            if (!foto.exists()) {
+                return@withContext ApiSimpleResponse(
+                    ok = false,
+                    mensaje = "Foto no encontrada"
+                )
+            }
+
+            val url = URL("$CHOFER_URL/cerrarentrega")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doInput = true
+            conn.doOutput = true
+            conn.useCaches = false
+
+            conn.setRequestProperty(
+                "Content-Type",
+                "multipart/form-data; boundary=$boundary"
+            )
+
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val output = conn.outputStream
+
+            fun writeTextField(
+                name: String,
+                value: String
+            ) {
+                output.write((twoHyphens + boundary + lineEnd).toByteArray())
+                output.write(
+                    ("Content-Disposition: form-data; name=\"$name\"$lineEnd")
+                        .toByteArray()
+                )
+                output.write(lineEnd.toByteArray())
+                output.write(value.toByteArray())
+                output.write(lineEnd.toByteArray())
+            }
+
+            fun writeFileField(
+                name: String,
+                file: java.io.File
+            ) {
+                output.write((twoHyphens + boundary + lineEnd).toByteArray())
+                output.write(
+                    (
+                            "Content-Disposition: form-data; name=\"$name\"; " +
+                                    "filename=\"${file.name}\"$lineEnd"
+                            ).toByteArray()
+                )
+                output.write(("Content-Type: image/jpeg$lineEnd").toByteArray())
+                output.write(lineEnd.toByteArray())
+
+                file.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+
+                output.write(lineEnd.toByteArray())
+            }
+
+            writeTextField("user_id", user.id.toString())
+            writeTextField("token", user.token)
+
+            writeTextField("post_id", postId.toString())
+            writeTextField("pedido_id", postId.toString())
+            writeTextField("id", postId.toString())
+
+            writeTextField("temperatura", temperatura)
+            writeTextField("hora_guia", horaGuia)
+            writeTextField("horaEntrega", horaGuia)
+
+            writeFileField("foto", foto)
+
+            output.write((twoHyphens + boundary + twoHyphens + lineEnd).toByteArray())
+            output.flush()
+            output.close()
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
+                    ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) {
+                JSONObject(responseText)
+            } else {
+                JSONObject()
+            }
+
+            val ok = json.optBoolean(
+                "ok",
+                json.optBoolean("success", statusCode in 200..299)
+            )
+
+            val mensajeApi = json.optString(
+                "mensaje",
+                json.optString(
+                    "message",
+                    json.optJSONObject("data")?.optString("message").orEmpty()
+                )
+            )
+
+            ApiSimpleResponse(
+                ok = ok && statusCode in 200..299,
+                mensaje = if (ok && statusCode in 200..299) {
+                    mensajeApi.ifBlank { "Entrega cerrada correctamente" }
+                } else {
+                    limpiarMensaje(mensajeApi)
+                }
+            )
+
+        } catch (e: Exception) {
+            ApiSimpleResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
+        }
     }
     suspend fun crearPedido(
         user: SmtUser,
@@ -188,14 +321,50 @@ object SmtApi {
                 it.write(body.toString())
             }
 
-            val response = conn.inputStream.bufferedReader()
-                .use(BufferedReader::readText)
+            val statusCode = conn.responseCode
 
-            val json = JSONObject(response)
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText)
+                    ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) {
+                JSONObject(responseText)
+            } else {
+                JSONObject()
+            }
+
+            val mensajeApi = json.optString(
+                "mensaje",
+                json.optString(
+                    "message",
+                    "Error al crear pedido"
+                )
+            )
+
+            val mensajeLimpio = when {
+                mensajeApi.contains("existe", true) ||
+                        mensajeApi.contains("duplic", true) ||
+                        mensajeApi.contains("already", true) -> "Guía ya existe"
+
+                mensajeApi.contains("patente", true) -> "Patente inválida"
+
+                mensajeApi.contains("token", true) -> "Sesión expirada"
+
+                mensajeApi.isBlank() -> "Error al crear pedido"
+
+                else -> mensajeApi
+            }
 
             ApiSimpleResponse(
-                ok = json.optBoolean("ok"),
-                mensaje = json.optString("mensaje", "Respuesta sin mensaje")
+                ok = statusCode in 200..299 && json.optBoolean("ok", false),
+                mensaje = if (statusCode in 200..299) {
+                    json.optString("mensaje", "Pedido creado correctamente")
+                } else {
+                    mensajeLimpio
+                }
             )
 
         } catch (e: Exception) {
@@ -238,6 +407,71 @@ object SmtApi {
 
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    suspend fun iniciarRuta(
+        user: SmtUser
+    ): ApiSimpleResponse = withContext(Dispatchers.IO) {
+
+        try {
+            val url = URL("$AUTH_URL/notificar-inicio-ruta")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val body = JSONObject().apply {
+                put("user_id", user.id)
+                put("token", user.token)
+            }
+
+            OutputStreamWriter(conn.outputStream).use {
+                it.write(body.toString())
+            }
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader()
+                    .use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()
+                    ?.use(BufferedReader::readText)
+                    ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) {
+                JSONObject(responseText)
+            } else {
+                JSONObject()
+            }
+
+            ApiSimpleResponse(
+                ok = statusCode in 200..299,
+                mensaje = json.optString(
+                    "mensaje",
+                    json.optString(
+                        "message",
+                        if (statusCode in 200..299) {
+                            "Ruta iniciada"
+                        } else {
+                            "Error iniciando ruta"
+                        }
+                    )
+                )
+            )
+
+        } catch (e: Exception) {
+
+            ApiSimpleResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
         }
     }
 }

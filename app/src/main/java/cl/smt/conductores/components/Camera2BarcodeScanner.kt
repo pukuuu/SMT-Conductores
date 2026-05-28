@@ -41,31 +41,35 @@ data class SmtCameraInfo(
 fun Camera2BarcodeScanner(
     barcodeFormat: Int,
     modifier: Modifier = Modifier,
+    flashEnabled: Boolean = false,
     onCodeScanned: (String) -> Unit,
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val cameras = remember { obtenerCamarasDisponiblesSmt(context) }
-    val cameraIndex = remember { mutableStateOf(0) }
-    val loading = remember { mutableStateOf(false) }
-
-    val camera = cameras.getOrNull(cameraIndex.value)
+    val camera = cameras.firstOrNull { it.label.startsWith("Trasera") } ?: cameras.firstOrNull()
 
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+        if (
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
             Text("Permiso de cámara no concedido", color = Color.White)
             return@Box
         }
 
-        if (loading.value) {
+        if (camera == null) {
             CircularProgressIndicator(color = Color(0xFF00C853))
         } else {
             Camera2PreviewInterno(
-                cameraId = camera?.id,
+                cameraId = camera.id,
                 barcodeFormat = barcodeFormat,
+                flashEnabled = flashEnabled,
                 onCodeScanned = onCodeScanned,
                 onError = onError
             )
@@ -76,8 +80,9 @@ fun Camera2BarcodeScanner(
 @SuppressLint("MissingPermission")
 @Composable
 private fun Camera2PreviewInterno(
-    cameraId: String?,
+    cameraId: String,
     barcodeFormat: Int,
+    flashEnabled: Boolean,
     onCodeScanned: (String) -> Unit,
     onError: (String) -> Unit
 ) {
@@ -104,18 +109,65 @@ private fun Camera2PreviewInterno(
 
     AndroidView(
         modifier = Modifier.fillMaxSize(),
+        update = { textureView ->
+            textureView.tag = flashEnabled
+        },
         factory = { ctx ->
             val textureView = TextureView(ctx)
-            val cameraManager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val selectedCameraId = cameraId ?: obtenerCamaraTraseraPrincipal(cameraManager)
+            textureView.tag = flashEnabled
 
-            val handlerThread = HandlerThread("SMT-Camera2-$selectedCameraId")
+            val cameraManager = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+
+            val handlerThread = HandlerThread("SMT-Camera2-$cameraId")
             handlerThread.start()
             val handler = Handler(handlerThread.looper)
 
             var cameraDevice: CameraDevice? = null
             var captureSession: CameraCaptureSession? = null
             var imageReader: ImageReader? = null
+            var previewSurface: Surface? = null
+            var analysisSurface: Surface? = null
+
+            fun aplicarRequest() {
+                val camera = cameraDevice ?: return
+                val session = captureSession ?: return
+                val preview = previewSurface ?: return
+                val analysis = analysisSurface ?: return
+
+                try {
+                    val flashOn = textureView.tag as? Boolean ?: false
+
+                    val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                        addTarget(preview)
+                        addTarget(analysis)
+
+                        set(
+                            CaptureRequest.CONTROL_AF_MODE,
+                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                        )
+
+                        set(
+                            CaptureRequest.CONTROL_AE_MODE,
+                            CaptureRequest.CONTROL_AE_MODE_ON
+                        )
+
+                        set(
+                            CaptureRequest.FLASH_MODE,
+                            if (flashOn) {
+                                CaptureRequest.FLASH_MODE_TORCH
+                            } else {
+                                CaptureRequest.FLASH_MODE_OFF
+                            }
+                        )
+                    }
+
+                    session.setRepeatingRequest(request.build(), null, handler)
+                } catch (_: Exception) {
+                    if (isRunning.get()) {
+                        onError("Error actualizando cámara")
+                    }
+                }
+            }
 
             fun cerrarTodo() {
                 isRunning.set(false)
@@ -129,6 +181,8 @@ private fun Camera2PreviewInterno(
                 captureSession = null
                 cameraDevice = null
                 imageReader = null
+                previewSurface = null
+                analysisSurface = null
             }
 
             fun iniciarCamara(surfaceTexture: SurfaceTexture) {
@@ -143,7 +197,7 @@ private fun Camera2PreviewInterno(
 
                     surfaceTexture.setDefaultBufferSize(size.width, size.height)
 
-                    val previewSurface = Surface(surfaceTexture)
+                    previewSurface = Surface(surfaceTexture)
 
                     imageReader = ImageReader.newInstance(
                         size.width,
@@ -151,6 +205,8 @@ private fun Camera2PreviewInterno(
                         ImageFormat.YUV_420_888,
                         4
                     )
+
+                    analysisSurface = imageReader?.surface
 
                     imageReader?.setOnImageAvailableListener({ reader ->
                         val image = try {
@@ -197,7 +253,7 @@ private fun Camera2PreviewInterno(
                     }, handler)
 
                     cameraManager.openCamera(
-                        selectedCameraId,
+                        cameraId,
                         object : CameraDevice.StateCallback() {
                             override fun onOpened(camera: CameraDevice) {
                                 if (!isRunning.get()) {
@@ -208,10 +264,11 @@ private fun Camera2PreviewInterno(
                                 cameraDevice = camera
 
                                 try {
-                                    val analysisSurface = imageReader?.surface ?: return
+                                    val preview = previewSurface ?: return
+                                    val analysis = analysisSurface ?: return
 
                                     camera.createCaptureSession(
-                                        listOf(previewSurface, analysisSurface),
+                                        listOf(preview, analysis),
                                         object : CameraCaptureSession.StateCallback() {
                                             override fun onConfigured(session: CameraCaptureSession) {
                                                 if (!isRunning.get()) {
@@ -220,33 +277,7 @@ private fun Camera2PreviewInterno(
                                                 }
 
                                                 captureSession = session
-
-                                                try {
-                                                    val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                                                        addTarget(previewSurface)
-                                                        addTarget(analysisSurface)
-
-                                                        set(
-                                                            CaptureRequest.CONTROL_AF_MODE,
-                                                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-                                                        )
-
-                                                        set(
-                                                            CaptureRequest.CONTROL_AE_MODE,
-                                                            CaptureRequest.CONTROL_AE_MODE_ON
-                                                        )
-                                                    }
-
-                                                    session.setRepeatingRequest(
-                                                        request.build(),
-                                                        null,
-                                                        handler
-                                                    )
-                                                } catch (_: Exception) {
-                                                    if (isRunning.get()) {
-                                                        onError("Error al iniciar preview")
-                                                    }
-                                                }
+                                                aplicarRequest()
                                             }
 
                                             override fun onConfigureFailed(session: CameraCaptureSession) {
@@ -285,16 +316,24 @@ private fun Camera2PreviewInterno(
                     }
                 } catch (_: Exception) {
                     cerrarTodo()
-                    onError("No se pudo abrir cámara $selectedCameraId")
+                    onError("No se pudo abrir cámara $cameraId")
                 }
             }
 
             textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                override fun onSurfaceTextureAvailable(
+                    surface: SurfaceTexture,
+                    width: Int,
+                    height: Int
+                ) {
                     iniciarCamara(surface)
                 }
 
-                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+                override fun onSurfaceTextureSizeChanged(
+                    surface: SurfaceTexture,
+                    width: Int,
+                    height: Int
+                ) {
                     ajustarPreviewTextureViewSmt(textureView, width, height)
                 }
 
@@ -303,7 +342,9 @@ private fun Camera2PreviewInterno(
                     return true
                 }
 
-                override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+                    aplicarRequest()
+                }
             }
 
             textureView
@@ -340,15 +381,6 @@ fun obtenerCamarasDisponiblesSmt(context: Context): List<SmtCameraInfo> {
     }
 }
 
-private fun obtenerCamaraTraseraPrincipal(cameraManager: CameraManager): String {
-    val traseras = cameraManager.cameraIdList.filter { id ->
-        val chars = cameraManager.getCameraCharacteristics(id)
-        chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
-    }
-
-    return traseras.firstOrNull() ?: cameraManager.cameraIdList.first()
-}
-
 fun ajustarPreviewTextureViewSmt(
     textureView: TextureView,
     previewWidth: Int,
@@ -362,7 +394,13 @@ fun ajustarPreviewTextureViewSmt(
     val matrix = Matrix()
 
     val viewRect = RectF(0f, 0f, viewWidth, viewHeight)
-    val bufferRect = RectF(0f, 0f, previewHeight.toFloat(), previewWidth.toFloat())
+
+    val bufferRect = RectF(
+        0f,
+        0f,
+        previewHeight.toFloat(),
+        previewWidth.toFloat()
+    )
 
     val centerX = viewRect.centerX()
     val centerY = viewRect.centerY()
@@ -372,15 +410,11 @@ fun ajustarPreviewTextureViewSmt(
         centerY - bufferRect.centerY()
     )
 
-    matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-
-    val scale = maxOf(
-        viewHeight / previewHeight.toFloat(),
-        viewWidth / previewWidth.toFloat()
+    matrix.setRectToRect(
+        viewRect,
+        bufferRect,
+        Matrix.ScaleToFit.CENTER
     )
-
-    matrix.postScale(scale, scale, centerX, centerY)
-    matrix.postRotate(0f, centerX, centerY)
 
     textureView.setTransform(matrix)
 }
