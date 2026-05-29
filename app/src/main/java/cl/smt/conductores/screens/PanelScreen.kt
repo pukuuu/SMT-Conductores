@@ -62,6 +62,8 @@ import cl.smt.conductores.storage.WorkerEnvio
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
 
 @Composable
 fun PanelScreen(
@@ -146,6 +148,12 @@ fun PanelScreen(
         return try {
             if (!file.exists() || file.length() <= 0L) return false
 
+            val exif = ExifInterface(file.absolutePath)
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+
             val opcionesBounds = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
@@ -169,29 +177,55 @@ fun PanelScreen(
             val bitmapOriginal = BitmapFactory.decodeFile(file.absolutePath, opcionesDecode)
                 ?: return false
 
-            val bitmapFinal = if (
-                bitmapOriginal.width > maxLado ||
-                bitmapOriginal.height > maxLado
-            ) {
-                val ratio = minOf(
-                    maxLado.toFloat() / bitmapOriginal.width.toFloat(),
-                    maxLado.toFloat() / bitmapOriginal.height.toFloat()
+            val matrix = Matrix()
+
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            }
+
+            val bitmapOrientado = if (!matrix.isIdentity) {
+                Bitmap.createBitmap(
+                    bitmapOriginal,
+                    0,
+                    0,
+                    bitmapOriginal.width,
+                    bitmapOriginal.height,
+                    matrix,
+                    true
                 )
-
-                val nuevoAncho = (bitmapOriginal.width * ratio).toInt()
-                val nuevoAlto = (bitmapOriginal.height * ratio).toInt()
-
-                Bitmap.createScaledBitmap(bitmapOriginal, nuevoAncho, nuevoAlto, true)
             } else {
                 bitmapOriginal
+            }
+
+            val bitmapFinal = if (
+                bitmapOrientado.width > maxLado ||
+                bitmapOrientado.height > maxLado
+            ) {
+                val ratio = minOf(
+                    maxLado.toFloat() / bitmapOrientado.width.toFloat(),
+                    maxLado.toFloat() / bitmapOrientado.height.toFloat()
+                )
+
+                val nuevoAncho = (bitmapOrientado.width * ratio).toInt()
+                val nuevoAlto = (bitmapOrientado.height * ratio).toInt()
+
+                Bitmap.createScaledBitmap(bitmapOrientado, nuevoAncho, nuevoAlto, true)
+            } else {
+                bitmapOrientado
             }
 
             FileOutputStream(file, false).use { out ->
                 bitmapFinal.compress(Bitmap.CompressFormat.JPEG, 70, out)
             }
 
-            if (bitmapFinal != bitmapOriginal) {
+            if (bitmapFinal != bitmapOrientado) {
                 bitmapFinal.recycle()
+            }
+
+            if (bitmapOrientado != bitmapOriginal) {
+                bitmapOrientado.recycle()
             }
 
             bitmapOriginal.recycle()
