@@ -6,8 +6,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,11 +18,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import cl.smt.conductores.data.SessionManager
+import cl.smt.conductores.data.SmtApi
 import cl.smt.conductores.data.SmtUser
 import cl.smt.conductores.screens.CrearRutaScreen
 import cl.smt.conductores.screens.LoginScreen
 import cl.smt.conductores.screens.PanelScreen
 import cl.smt.conductores.screens.PermisosScreen
+import cl.smt.conductores.screens.UpdateRequiredScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
 
 class MainActivity : ComponentActivity() {
@@ -43,9 +47,35 @@ fun AppRoot() {
     }
 
     var screen by remember {
-        mutableStateOf(
-            if (user == null) "login" else "permisos"
-        )
+        mutableStateOf("version_check")
+    }
+
+    var updateMessage by remember {
+        mutableStateOf("")
+    }
+
+    var playStoreUrl by remember {
+        mutableStateOf("")
+    }
+
+    LaunchedEffect(Unit) {
+        val version = SmtApi.checkAppVersion()
+
+        if (
+            version.ok &&
+            version.forceUpdate &&
+            BuildConfig.VERSION_CODE < version.minimumVersionCode
+        ) {
+            updateMessage = version.message
+            playStoreUrl = version.playStoreUrl
+            screen = "update_required"
+        } else {
+            screen = if (user == null) {
+                "login"
+            } else {
+                "permisos"
+            }
+        }
     }
 
     BackHandler(enabled = user != null) {
@@ -54,52 +84,69 @@ fun AppRoot() {
                 screen = "panel"
             }
 
-            "permisos" -> {
-                // No cerrar app ni saltar permisos con botón atrás.
+            "permisos", "version_check", "update_required" -> {
+                // No cerrar app ni saltar permisos/actualización con botón atrás.
             }
 
             "panel" -> {
                 // Por ahora no cerrar app desde el panel.
-                // Después podemos mostrar diálogo "¿Salir?"
             }
         }
-    }
-
-    if (user == null) {
-        LoginScreen(
-            onLoginSuccess = {
-                user = SessionManager.getUser(context)
-                screen = "permisos"
-            }
-        )
-        return
     }
 
     when (screen) {
-        "permisos" -> {
-            PermisosScreen(
-                onPermisosOk = {
-                    screen = "panel"
+        "version_check" -> {
+            LoadingScreen("Revisando versión...")
+        }
+
+        "update_required" -> {
+            UpdateRequiredScreen(
+                message = updateMessage,
+                playStoreUrl = playStoreUrl
+            )
+        }
+
+        "login" -> {
+            LoginScreen(
+                onLoginSuccess = {
+                    user = SessionManager.getUser(context)
+                    screen = "permisos"
                 }
             )
         }
 
+        "permisos" -> {
+            if (user == null) {
+                screen = "login"
+            } else {
+                PermisosScreen(
+                    onPermisosOk = {
+                        screen = "panel"
+                    }
+                )
+            }
+        }
+
         "panel" -> {
-            PanelScreen(
-                onCrearRutaClick = { screen = "crear_ruta" },
-                onPerfilClick = { screen = "perfil" },
-                onHistorialClick = { screen = "historial" },
-                onCerrarSesionClick = {
-                    SessionManager.clear(context)
-                    user = null
-                    screen = "login"
-                },
-                onSesionExpirada = {
-                    SessionManager.clear(context)
-                    user = null
-                    screen = "login"
-                }
-            )
+            if (user == null) {
+                screen = "login"
+            } else {
+                PanelScreen(
+                    onCrearRutaClick = { screen = "crear_ruta" },
+                    onPerfilClick = { screen = "perfil" },
+                    onHistorialClick = { screen = "historial" },
+                    onCerrarSesionClick = {
+                        SessionManager.clear(context)
+                        user = null
+                        screen = "login"
+                    },
+                    onSesionExpirada = {
+                        SessionManager.clear(context)
+                        user = null
+                        screen = "login"
+                    }
+                )
+            }
         }
 
         "crear_ruta" -> {
@@ -123,8 +170,18 @@ fun AppRoot() {
         }
 
         else -> {
-            screen = "panel"
+            screen = if (user == null) "login" else "panel"
         }
+    }
+}
+
+@Composable
+fun LoadingScreen(text: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator()
     }
 }
 
