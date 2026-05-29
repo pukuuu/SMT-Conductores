@@ -1,6 +1,8 @@
 package cl.smt.conductores.screens
 
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.ImageView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -59,6 +61,7 @@ import cl.smt.conductores.storage.ColaEntregas
 import cl.smt.conductores.storage.WorkerEnvio
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
 
 @Composable
 fun PanelScreen(
@@ -127,7 +130,10 @@ fun PanelScreen(
     }
 
     fun crearArchivoFoto(): Pair<File, Uri> {
-        val file = File(context.cacheDir, "entrega_${System.currentTimeMillis()}.jpg")
+        val file = File(
+            context.cacheDir,
+            "entrega_${System.currentTimeMillis()}_${(1000..9999).random()}.jpg"
+        )
         val uri = FileProvider.getUriForFile(
             context,
             "cl.smt.conductores.fileprovider",
@@ -136,12 +142,80 @@ fun PanelScreen(
 
         return file to uri
     }
+    fun comprimirFotoParaEntrega(file: File): Boolean {
+        return try {
+            if (!file.exists() || file.length() <= 0L) return false
 
+            val opcionesBounds = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+
+            BitmapFactory.decodeFile(file.absolutePath, opcionesBounds)
+
+            var escala = 1
+            val maxLado = 1600
+
+            while (
+                opcionesBounds.outWidth / escala > maxLado ||
+                opcionesBounds.outHeight / escala > maxLado
+            ) {
+                escala *= 2
+            }
+
+            val opcionesDecode = BitmapFactory.Options().apply {
+                inSampleSize = escala
+            }
+
+            val bitmapOriginal = BitmapFactory.decodeFile(file.absolutePath, opcionesDecode)
+                ?: return false
+
+            val bitmapFinal = if (
+                bitmapOriginal.width > maxLado ||
+                bitmapOriginal.height > maxLado
+            ) {
+                val ratio = minOf(
+                    maxLado.toFloat() / bitmapOriginal.width.toFloat(),
+                    maxLado.toFloat() / bitmapOriginal.height.toFloat()
+                )
+
+                val nuevoAncho = (bitmapOriginal.width * ratio).toInt()
+                val nuevoAlto = (bitmapOriginal.height * ratio).toInt()
+
+                Bitmap.createScaledBitmap(bitmapOriginal, nuevoAncho, nuevoAlto, true)
+            } else {
+                bitmapOriginal
+            }
+
+            FileOutputStream(file, false).use { out ->
+                bitmapFinal.compress(Bitmap.CompressFormat.JPEG, 70, out)
+            }
+
+            if (bitmapFinal != bitmapOriginal) {
+                bitmapFinal.recycle()
+            }
+
+            bitmapOriginal.recycle()
+
+            file.exists() && file.length() > 0L
+        } catch (e: Exception) {
+            false
+        }
+    }
     val tomarFotoLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { ok ->
         if (ok) {
-            fotoTomada.value = true
+            val file = fotoEntregaFile.value
+
+            if (file != null && comprimirFotoParaEntrega(file)) {
+                fotoTomada.value = true
+                mensaje.value = "Foto lista (${file.length() / 1024} KB)"
+            } else {
+                fotoTomada.value = false
+                fotoEntregaUri.value = null
+                fotoEntregaFile.value = null
+                mensaje.value = "No se pudo procesar la foto"
+            }
         } else {
             fotoTomada.value = false
             fotoEntregaUri.value = null
@@ -577,6 +651,7 @@ fun PanelScreen(
                                 mensaje.value = "Debes tomar una foto"
                                 return@Button
                             }
+                            mensaje.value = "Enviando foto ${(foto.length() / 1024)} KB - ${foto.name}"
 
                             val entrega = EntregaPendiente(
                                 postId = pedido.id,

@@ -3,16 +3,39 @@ package cl.smt.conductores.data
 import cl.smt.conductores.models.PedidoSmt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 object SmtApi {
 
     private const val AUTH_URL = "https://backend.smtransportes.app/wp-json/smt/v1"
     private const val CHOFER_URL = "https://backend.smtransportes.app/wp-json/smt-chofer/v1"
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    private fun extraerMensaje(json: JSONObject, fallback: String): String {
+        return json.optString(
+            "mensaje",
+            json.optString(
+                "message",
+                json.optJSONObject("data")?.optString("message", fallback) ?: fallback
+            )
+        )
+    }
 
     suspend fun login(
         usuario: String,
@@ -178,12 +201,9 @@ object SmtApi {
                 json.optBoolean("success", statusCode in 200..299)
             )
 
-            val mensaje = json.optString(
-                "mensaje",
-                json.optString(
-                    "message",
-                    if (okReal) "Pedido actualizado" else "Error actualizando pedido"
-                )
+            val mensaje = extraerMensaje(
+                json,
+                if (okReal) "Pedido actualizado" else "Error actualizando pedido"
             )
 
             ApiSimpleResponse(
@@ -224,6 +244,7 @@ object SmtApi {
             }
 
             notificarInicioRuta(user)
+
             var errores = 0
 
             pendientes.forEach { pedido ->
@@ -244,8 +265,6 @@ object SmtApi {
                     mensaje = "No se pudieron iniciar todos los pedidos"
                 )
             }
-
-            notificarInicioRuta(user)
 
             ApiSimpleResponse(
                 ok = true,
@@ -295,16 +314,13 @@ object SmtApi {
 
             ApiSimpleResponse(
                 ok = statusCode in 200..299,
-                mensaje = json.optString(
-                    "mensaje",
-                    json.optString(
-                        "message",
-                        if (statusCode in 200..299) {
-                            "Inicio de ruta notificado"
-                        } else {
-                            "Error notificando inicio de ruta"
-                        }
-                    )
+                mensaje = extraerMensaje(
+                    json,
+                    if (statusCode in 200..299) {
+                        "Inicio de ruta notificado"
+                    } else {
+                        "Error notificando inicio de ruta"
+                    }
                 )
             )
 
@@ -323,131 +339,93 @@ object SmtApi {
         horaGuia: String,
         foto: java.io.File
     ): ApiSimpleResponse = withContext(Dispatchers.IO) {
-
-        val boundary = "SMTBoundary${System.currentTimeMillis()}"
-        val lineEnd = "\r\n"
-        val twoHyphens = "--"
-
-        fun limpiarMensaje(mensaje: String): String {
-            return when {
-                mensaje.contains("token", true) -> "Sesión expirada"
-                mensaje.contains("foto", true) -> "Error con la foto"
-                mensaje.contains("temperatura", true) -> "Temperatura inválida"
-                mensaje.contains("hora", true) -> "Hora inválida"
-                mensaje.contains("pedido", true) -> "Pedido inválido"
-                mensaje.isBlank() -> "Error cerrando entrega"
-                else -> mensaje
-            }
-        }
-
         try {
             if (!foto.exists()) {
                 return@withContext ApiSimpleResponse(
                     ok = false,
-                    mensaje = "Foto no encontrada"
+                    mensaje = "Foto no encontrada: ${foto.absolutePath}"
                 )
             }
 
-            val url = URL("$CHOFER_URL/cerrarentrega")
-            val conn = url.openConnection() as HttpURLConnection
-
-            conn.requestMethod = "POST"
-            conn.doInput = true
-            conn.doOutput = true
-            conn.useCaches = false
-
-            conn.setRequestProperty(
-                "Content-Type",
-                "multipart/form-data; boundary=$boundary"
-            )
-
-            conn.setRequestProperty("X-SMT-Token", user.token)
-            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
-
-            val output = conn.outputStream
-
-            fun writeTextField(name: String, value: String) {
-                output.write((twoHyphens + boundary + lineEnd).toByteArray())
-                output.write(
-                    ("Content-Disposition: form-data; name=\"$name\"$lineEnd")
-                        .toByteArray()
+            if (foto.length() <= 0L) {
+                return@withContext ApiSimpleResponse(
+                    ok = false,
+                    mensaje = "Foto vacía: ${foto.absolutePath}"
                 )
-                output.write(lineEnd.toByteArray())
-                output.write(value.toByteArray())
-                output.write(lineEnd.toByteArray())
             }
 
-            fun writeFileField(name: String, file: java.io.File) {
-                output.write((twoHyphens + boundary + lineEnd).toByteArray())
-                output.write(
-                    (
-                            "Content-Disposition: form-data; name=\"$name\"; " +
-                                    "filename=\"${file.name}\"$lineEnd"
-                            ).toByteArray()
-                )
-                output.write(("Content-Type: image/jpeg$lineEnd").toByteArray())
-                output.write(lineEnd.toByteArray())
+            val textMediaType = "text/plain; charset=utf-8".toMediaTypeOrNull()
+            val imageMediaType = "image/jpeg".toMediaTypeOrNull()
 
-                file.inputStream().use { input ->
-                    input.copyTo(output)
+            val body = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("user_id", user.id.toString())
+                .addFormDataPart("token", user.token)
+                .addFormDataPart("post_id", postId.toString())
+                .addFormDataPart("pedido_id", postId.toString())
+                .addFormDataPart("id", postId.toString())
+                .addFormDataPart("temperatura", temperatura)
+                .addFormDataPart("hora_guia", horaGuia)
+                .addFormDataPart("horaEntrega", horaGuia)
+                .addFormDataPart(
+                    "foto",
+                    if (foto.name.endsWith(".jpg", true) || foto.name.endsWith(".jpeg", true)) {
+                        foto.name
+                    } else {
+                        "entrega_$postId.jpg"
+                    },
+                    foto.asRequestBody(imageMediaType)
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url("$CHOFER_URL/cerrarentrega")
+                .post(body)
+                .addHeader("X-SMT-Token", user.token)
+                .addHeader("Authorization", "Bearer ${user.token}")
+                .addHeader("Accept", "application/json")
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                val statusCode = response.code
+                val responseText = response.body?.string().orEmpty()
+
+                val json = try {
+                    if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
+                } catch (e: Exception) {
+                    JSONObject().apply {
+                        put("mensaje", responseText)
+                    }
                 }
 
-                output.write(lineEnd.toByteArray())
-            }
-
-            writeTextField("user_id", user.id.toString())
-            writeTextField("token", user.token)
-
-            writeTextField("post_id", postId.toString())
-            writeTextField("pedido_id", postId.toString())
-            writeTextField("id", postId.toString())
-
-            writeTextField("temperatura", temperatura)
-            writeTextField("hora_guia", horaGuia)
-            writeTextField("horaEntrega", horaGuia)
-
-            writeFileField("foto", foto)
-
-            output.write((twoHyphens + boundary + twoHyphens + lineEnd).toByteArray())
-            output.flush()
-            output.close()
-
-            val statusCode = conn.responseCode
-
-            val responseText = if (statusCode in 200..299) {
-                conn.inputStream.bufferedReader().use(BufferedReader::readText)
-            } else {
-                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
-            }
-
-            val json = if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
-
-            val ok = json.optBoolean(
-                "ok",
-                json.optBoolean("success", statusCode in 200..299)
-            )
-
-            val mensajeApi = json.optString(
-                "mensaje",
-                json.optString(
-                    "message",
-                    json.optJSONObject("data")?.optString("message").orEmpty()
+                val okApi = json.optBoolean(
+                    "ok",
+                    json.optBoolean("success", statusCode in 200..299)
                 )
-            )
 
-            ApiSimpleResponse(
-                ok = ok && statusCode in 200..299,
-                mensaje = if (ok && statusCode in 200..299) {
-                    mensajeApi.ifBlank { "Entrega cerrada correctamente" }
-                } else {
-                    limpiarMensaje(mensajeApi)
-                }
-            )
+                val mensajeApi = extraerMensaje(
+                    json,
+                    if (statusCode in 200..299) {
+                        "Entrega cerrada correctamente"
+                    } else {
+                        "HTTP $statusCode: $responseText"
+                    }
+                )
+
+                ApiSimpleResponse(
+                    ok = statusCode in 200..299 && okApi,
+                    mensaje = if (statusCode in 200..299 && okApi) {
+                        mensajeApi.ifBlank { "Entrega cerrada correctamente" }
+                    } else {
+                        "HTTP $statusCode - ${mensajeApi.ifBlank { "Error cerrando entrega" }}"
+                    }
+                )
+            }
 
         } catch (e: Exception) {
             ApiSimpleResponse(
                 ok = false,
-                mensaje = e.message ?: "Error desconocido"
+                mensaje = "Error cerrarEntrega APK: ${e.message ?: "Error desconocido"}"
             )
         }
     }
@@ -498,10 +476,7 @@ object SmtApi {
 
             val json = if (responseText.isNotBlank()) JSONObject(responseText) else JSONObject()
 
-            val mensajeApi = json.optString(
-                "mensaje",
-                json.optString("message", "Error al crear pedido")
-            )
+            val mensajeApi = extraerMensaje(json, "Error al crear pedido")
 
             val mensajeLimpio = when {
                 mensajeApi.contains("existe", true) ||
