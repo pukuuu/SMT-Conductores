@@ -34,7 +34,7 @@ fun parsearGuiaPdf417(raw: String): GuiaPdf417Data {
     val partes = raw.trim().split("*").map { it.trim() }.filter { it.isNotBlank() }
 
     return GuiaPdf417Data(
-        factura = partes.getOrNull(5).orEmpty(),
+        factura = partes.getOrNull(2).orEmpty(),
         paciente = partes.getOrNull(6).orEmpty(),
         direccion = partes.getOrNull(7).orEmpty(),
         comuna = partes.getOrNull(8).orEmpty()

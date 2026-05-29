@@ -2,6 +2,7 @@ package cl.smt.conductores
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,10 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtUser
+import cl.smt.conductores.screens.CrearRutaScreen
 import cl.smt.conductores.screens.LoginScreen
 import cl.smt.conductores.screens.PanelScreen
+import cl.smt.conductores.screens.PermisosScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
-import cl.smt.conductores.screens.CrearRutaScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,20 +43,47 @@ fun AppRoot() {
     }
 
     var screen by remember {
-        mutableStateOf("panel")
+        mutableStateOf(
+            if (user == null) "login" else "permisos"
+        )
+    }
+
+    BackHandler(enabled = user != null) {
+        when (screen) {
+            "crear_ruta", "perfil", "historial" -> {
+                screen = "panel"
+            }
+
+            "permisos" -> {
+                // No cerrar app ni saltar permisos con botón atrás.
+            }
+
+            "panel" -> {
+                // Por ahora no cerrar app desde el panel.
+                // Después podemos mostrar diálogo "¿Salir?"
+            }
+        }
     }
 
     if (user == null) {
         LoginScreen(
             onLoginSuccess = {
                 user = SessionManager.getUser(context)
-                screen = "panel"
+                screen = "permisos"
             }
         )
         return
     }
 
     when (screen) {
+        "permisos" -> {
+            PermisosScreen(
+                onPermisosOk = {
+                    screen = "panel"
+                }
+            )
+        }
+
         "panel" -> {
             PanelScreen(
                 onCrearRutaClick = { screen = "crear_ruta" },
@@ -63,27 +92,37 @@ fun AppRoot() {
                 onCerrarSesionClick = {
                     SessionManager.clear(context)
                     user = null
-                    screen = "panel"
+                    screen = "login"
                 },
                 onSesionExpirada = {
                     SessionManager.clear(context)
                     user = null
+                    screen = "login"
+                }
+            )
+        }
+
+        "crear_ruta" -> {
+            CrearRutaScreen(
+                onBack = {
                     screen = "panel"
                 }
             )
         }
 
-        "crear_ruta" -> CrearRutaScreen(
-            onBack = {
+        "perfil" -> {
+            PlaceholderScreen("Perfil pendiente") {
                 screen = "panel"
             }
-        )
-
-        "perfil" -> PlaceholderScreen("Perfil pendiente") {
-            screen = "panel"
         }
 
-        "historial" -> PlaceholderScreen("Historial pendiente") {
+        "historial" -> {
+            PlaceholderScreen("Historial pendiente") {
+                screen = "panel"
+            }
+        }
+
+        else -> {
             screen = "panel"
         }
     }

@@ -17,6 +17,50 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 
 object SmtApi {
+    suspend fun checkAppVersion(): AppVersionResponse = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$CHOFER_URL/app-version")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Accept", "application/json")
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+            }
+
+            val json = JSONObject(responseText)
+
+            if (!json.optBoolean("success", false)) {
+                return@withContext AppVersionResponse(
+                    ok = false,
+                    error = extraerMensaje(json, "No se pudo verificar versión")
+                )
+            }
+
+            val data = json.getJSONObject("data")
+
+            AppVersionResponse(
+                ok = true,
+                latestVersionCode = data.optInt("latestVersionCode"),
+                minimumVersionCode = data.optInt("minimumVersionCode"),
+                latestVersionName = data.optString("latestVersionName"),
+                forceUpdate = data.optBoolean("forceUpdate"),
+                message = data.optString("message"),
+                playStoreUrl = data.optString("playStoreUrl")
+            )
+
+        } catch (e: Exception) {
+            AppVersionResponse(
+                ok = false,
+                error = e.message ?: "Error verificando versión"
+            )
+        }
+    }
 
     private const val AUTH_URL = "https://backend.smtransportes.app/wp-json/smt/v1"
     private const val CHOFER_URL = "https://backend.smtransportes.app/wp-json/smt-chofer/v1"
@@ -67,6 +111,61 @@ object SmtApi {
                 return@withContext LoginResponse(
                     ok = false,
                     mensaje = json.optString("message", "Login inválido")
+                )
+            }
+
+            val userJson = json.getJSONObject("user")
+
+            LoginResponse(
+                ok = true,
+                mensaje = "Login correcto",
+                user = SmtUser(
+                    id = userJson.optInt("id"),
+                    name = userJson.optString("name"),
+                    email = userJson.optString("email"),
+                    role = userJson.optString("role"),
+                    token = userJson.optString("token"),
+                    sucursal = userJson.optString("sucursal"),
+                    traccarId = userJson.optString("traccar_id")
+                )
+            )
+
+        } catch (e: Exception) {
+            LoginResponse(
+                ok = false,
+                mensaje = e.message ?: "Error desconocido"
+            )
+        }
+    }
+
+    suspend fun loginBarcode(
+        barcodeToken: String
+    ): LoginResponse = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$AUTH_URL/login-barcode")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+
+            val body = JSONObject().apply {
+                put("barcode_token", barcodeToken)
+            }
+
+            OutputStreamWriter(conn.outputStream).use {
+                it.write(body.toString())
+            }
+
+            val response = conn.inputStream.bufferedReader()
+                .use(BufferedReader::readText)
+
+            val json = JSONObject(response)
+
+            if (!json.optBoolean("success")) {
+                return@withContext LoginResponse(
+                    ok = false,
+                    mensaje = json.optString("message", "QR inválido")
                 )
             }
 
