@@ -21,6 +21,8 @@ object SmtApi {
         try {
             val url = URL("$CHOFER_URL/app-version")
             val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
 
             conn.requestMethod = "GET"
             conn.setRequestProperty("Accept", "application/json")

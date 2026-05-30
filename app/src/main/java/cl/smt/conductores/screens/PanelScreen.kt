@@ -499,6 +499,81 @@ fun PanelScreen(
                 )
             }
 
+            if (entregasLocales.value.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = fondoCard),
+                    border = BorderStroke(1.dp, borde)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp)
+                    ) {
+                        Text(
+                            "Cola offline (${entregasLocales.value.size})",
+                            color = texto,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black
+                        )
+
+                        Spacer(Modifier.height(8.dp))
+
+                        entregasLocales.value.forEach { entrega ->
+                            val estadoTexto = when (entrega.estado) {
+                                "pendiente" -> "Pendiente de envío"
+                                "enviando" -> "Enviando..."
+                                "error" -> "Error, requiere reintento"
+                                else -> entrega.estado
+                            }
+
+                            Text(
+                                "Factura ${entrega.factura}",
+                                color = texto,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Text(
+                                "$estadoTexto · Intentos: ${entrega.intentos}",
+                                color = when (entrega.estado) {
+                                    "error" -> Color(0xFFF87171)
+                                    "enviando" -> Color(0xFF60A5FA)
+                                    else -> suave
+                                },
+                                fontSize = 13.sp
+                            )
+
+                            Spacer(Modifier.height(10.dp))
+                        }
+
+                        Button(
+                            onClick = {
+                                mensaje.value = "Reintentando entregas pendientes..."
+
+                                WorkerEnvio.procesarCola(context) { ok, msg ->
+                                    scope.launch {
+                                        mensaje.value = msg
+                                        refrescarColaLocal()
+
+                                        if (ok && user != null) {
+                                            val nuevos = SmtApi.cargarMisPedidos(user)
+                                            if (nuevos.ok) {
+                                                pedidos.value = nuevos.pedidos
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !accionando.value && !cargando.value
+                        ) {
+                            Text("Reintentar envío")
+                        }
+                    }
+                }
+            }
+
             if (mensaje.value.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
 

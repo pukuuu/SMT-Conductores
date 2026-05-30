@@ -24,12 +24,14 @@ fun PermisosScreen(
     onPermisosOk: () -> Unit
 ) {
     val context = LocalContext.current
-
-    var permisosConcedidos by remember {
-        mutableStateOf(false)
-    }
+    var permisosConcedidos by remember { mutableStateOf(false) }
 
     fun revisarPermisos(): Boolean {
+        val camara =
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
 
         val ubicacion =
             ContextCompat.checkSelfPermission(
@@ -47,7 +49,7 @@ fun PermisosScreen(
                 true
             }
 
-        return ubicacion && notificaciones
+        return camara && ubicacion && notificaciones
     }
 
     val launcher = rememberLauncherForActivityResult(
@@ -66,6 +68,21 @@ fun PermisosScreen(
         if (permisosConcedidos) {
             onPermisosOk()
         }
+    }
+
+    val permisos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS
+        )
+    } else {
+        arrayOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
     }
 
     Box(
@@ -92,7 +109,6 @@ fun PermisosScreen(
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-
                 Text(
                     "Permisos requeridos",
                     style = MaterialTheme.typography.headlineSmall,
@@ -100,32 +116,12 @@ fun PermisosScreen(
                 )
 
                 Text(
-                    "SMT necesita acceso a ubicación y notificaciones para futuras funciones GPS y avisos importantes."
+                    "SMT necesita cámara para escanear guías y tomar fotos de entrega, ubicación para futuras funciones GPS y notificaciones para avisos importantes."
                 )
 
                 Button(
                     onClick = {
-
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-
-                            launcher.launch(
-                                arrayOf(
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                                    Manifest.permission.POST_NOTIFICATIONS
-                                )
-                            )
-
-                        } else {
-
-                            launcher.launch(
-                                arrayOf(
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION
-                                )
-                            )
-
-                        }
+                        launcher.launch(permisos)
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
