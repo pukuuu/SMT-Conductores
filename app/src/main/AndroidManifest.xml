@@ -61,7 +61,6 @@
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
@@ -70,6 +69,12 @@
         <activity
             android:name=".scanner.ScanActivity"
             android:screenOrientation="portrait" />
+
+        <service
+            android:name=".gps.SmtLocationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
     </application>
 

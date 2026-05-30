@@ -31,6 +31,8 @@ android {
     }
 }
 dependencies {
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
