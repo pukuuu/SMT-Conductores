@@ -26,10 +26,16 @@ import cl.smt.conductores.screens.PanelScreen
 import cl.smt.conductores.screens.PermisosScreen
 import cl.smt.conductores.screens.UpdateRequiredScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
+import android.graphics.Color as AndroidColor
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.navigationBarColor = AndroidColor.BLACK
+        window.statusBarColor = AndroidColor.BLACK
         setContent {
             SMTConductoresTheme {
                 AppRoot()
@@ -174,14 +180,25 @@ fun AppRoot() {
         }
     }
 }
-
 @Composable
 fun LoadingScreen(text: String) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF00140D),
+                        Color(0xFF020617),
+                        Color(0xFF001F14)
+                    )
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(
+            color = Color(0xFF00C853)
+        )
     }
 }
 

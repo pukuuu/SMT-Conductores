@@ -87,6 +87,9 @@ fun PanelScreen(
     val hayPendientes = pedidos.value.any {
         it.estado.equals("pendiente", true)
     }
+    val hayPedidosEnRuta = pedidos.value.any {
+        it.estado.equals("en_ruta", true)
+    }
 
     val mostrarMenu = remember { mutableStateOf(false) }
     val mostrarEntrega = remember { mutableStateOf(false) }
@@ -422,6 +425,13 @@ fun PanelScreen(
                                     "GPS no configurado"
                                 }
                             } else {
+
+                                if (hayPedidosEnRuta) {
+                                    mensaje.value =
+                                        "No puedes apagar GPS con pedidos en ruta"
+                                    return@Switch
+                                }
+
                                 GpsController.detener(context)
                                 gpsActivo.value = false
                                 mensaje.value = "GPS desactivado"
@@ -440,6 +450,11 @@ fun PanelScreen(
 
                 Button(
                     onClick = {
+                        if (!gpsActivo.value) {
+                            mensaje.value = "Debes activar GPS para iniciar ruta"
+                            return@Button
+                        }
+
                         if (user == null) {
                             mensaje.value = "Sesión inválida"
                             return@Button
@@ -743,6 +758,11 @@ fun PanelScreen(
                 confirmButton = {
                     Button(
                         onClick = {
+                            if (!gpsActivo.value) {
+                                mensaje.value =
+                                    "GPS activo requerido para cerrar entrega"
+                                return@Button
+                            }
                             val pedido = pedidoEntrega.value ?: return@Button
                             val foto = fotoEntregaFile.value
 

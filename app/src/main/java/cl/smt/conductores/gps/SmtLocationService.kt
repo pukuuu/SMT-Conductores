@@ -212,6 +212,8 @@ class SmtLocationService : Service() {
             .setContentTitle("SMT GPS activo")
             .setContentText("Enviando ubicación durante la ruta")
             .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
             .setPriority(
                 NotificationCompat.PRIORITY_LOW
             )
@@ -230,6 +232,37 @@ class SmtLocationService : Service() {
                 locationCallback
             )
         } catch (_: Exception) {
+        }
+
+        try {
+
+            if (GpsController.estaActivo(this)) {
+
+                Log.d(
+                    "SMT_GPS",
+                    "REINICIANDO SERVICIO"
+                )
+
+                val intent =
+                    Intent(
+                        this,
+                        SmtLocationService::class.java
+                    )
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+
+        } catch (e: Exception) {
+
+            Log.e(
+                "SMT_GPS",
+                "ERROR REINICIANDO",
+                e
+            )
         }
 
         super.onDestroy()
