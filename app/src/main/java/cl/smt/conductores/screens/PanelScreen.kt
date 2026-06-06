@@ -77,6 +77,7 @@ fun PanelScreen(
     val scope = rememberCoroutineScope()
     val user = SessionManager.getUser(context)
 
+    val mostrarAvisoGps = remember { mutableStateOf(false) }
     val pedidos = remember { mutableStateOf<List<PedidoSmt>>(emptyList()) }
     val entregasLocales = remember { mutableStateOf(ColaEntregas.obtenerEntregas(context)) }
     val cargando = remember { mutableStateOf(false) }
@@ -418,12 +419,7 @@ fun PanelScreen(
                         checked = gpsActivo.value,
                         onCheckedChange = { activo ->
                             if (activo) {
-                                gpsActivo.value = GpsController.iniciar(context)
-                                mensaje.value = if (gpsActivo.value) {
-                                    "GPS activado"
-                                } else {
-                                    "GPS no configurado"
-                                }
+                                mostrarAvisoGps.value = true
                             } else {
 
                                 if (hayPedidosEnRuta) {
@@ -476,7 +472,7 @@ fun PanelScreen(
                                 }
 
                                 if (!gpsActivo.value) {
-                                    gpsActivo.value = GpsController.iniciar(context)
+                                    mostrarAvisoGps.value = true
                                 }
                             }
 
@@ -830,7 +826,59 @@ fun PanelScreen(
                 }
             )
         }
+        if (mostrarAvisoGps.value) {
+            AlertDialog(
+                onDismissRequest = {
+                    mostrarAvisoGps.value = false
+                },
+                title = {
+                    Text("Uso de ubicación")
+                },
+                text = {
+                    Text(
+                        """
+SMT Conductores recopila y utiliza la ubicación del dispositivo para:
+
+• Mostrar la ubicación del conductor en tiempo real.
+• Registrar recorridos de rutas asignadas.
+• Permitir seguimiento operativo y control logístico.
+• Mantener el monitoreo incluso cuando la aplicación está minimizada o la pantalla está bloqueada mientras exista una ruta activa.
+
+La ubicación es utilizada exclusivamente para fines operativos de transporte de SM Transportes.
+                """.trimIndent()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            mostrarAvisoGps.value = false
+
+                            gpsActivo.value = GpsController.iniciar(context)
+
+                            mensaje.value =
+                                if (gpsActivo.value) {
+                                    "GPS activado"
+                                } else {
+                                    "GPS no configurado"
+                                }
+                        }
+                    ) {
+                        Text("Aceptar")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = {
+                            mostrarAvisoGps.value = false
+                        }
+                    ) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
     }
+
 }
 
 @Composable
