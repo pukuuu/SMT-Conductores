@@ -264,7 +264,8 @@ object SmtApi {
     suspend fun actualizarPedidoEstado(
         user: SmtUser,
         postId: Int,
-        estado: String
+        estado: String,
+        motivoProblema: String = ""
     ): ApiSimpleResponse = withContext(Dispatchers.IO) {
         try {
             val url = URL("$AUTH_URL/actualizarpedido")
@@ -281,6 +282,10 @@ object SmtApi {
                 put("token", user.token)
                 put("post_id", postId)
                 put("estado", estado)
+
+                if (motivoProblema.isNotBlank()) {
+                    put("motivo_problema", motivoProblema)
+                }
             }
 
             OutputStreamWriter(conn.outputStream).use {

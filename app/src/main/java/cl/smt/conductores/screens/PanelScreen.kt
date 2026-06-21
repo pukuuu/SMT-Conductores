@@ -94,6 +94,9 @@ fun PanelScreen(
 
     val mostrarMenu = remember { mutableStateOf(false) }
     val mostrarEntrega = remember { mutableStateOf(false) }
+    val mostrarProblema = remember { mutableStateOf(false) }
+    val pedidoProblema = remember { mutableStateOf<PedidoSmt?>(null) }
+    val motivoProblema = remember { mutableStateOf("") }
     val pedidoEntrega = remember { mutableStateOf<PedidoSmt?>(null) }
     val temperaturaEntrega = remember { mutableStateOf("") }
     val horaEntrega = remember { mutableStateOf("") }
@@ -637,7 +640,9 @@ fun PanelScreen(
                             mostrarEntrega.value = true
                         },
                         onProblema = {
-                            mensaje.value = "Problema: pendiente de reconstruir"
+                            pedidoProblema.value = pedido
+                            motivoProblema.value = ""
+                            mostrarProblema.value = true
                         }
                     )
 
@@ -818,6 +823,92 @@ fun PanelScreen(
                     OutlinedButton(
                         onClick = {
                             mostrarEntrega.value = false
+                        },
+                        enabled = !accionando.value
+                    ) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+        if (mostrarProblema.value && pedidoProblema.value != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!accionando.value) {
+                        mostrarProblema.value = false
+                    }
+                },
+                title = {
+                    Text("Reportar problema")
+                },
+                text = {
+                    Column {
+                        Text("Factura: ${pedidoProblema.value?.factura ?: ""}")
+
+                        Spacer(Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = motivoProblema.value,
+                            onValueChange = { motivoProblema.value = it },
+                            label = { Text("Motivo del problema") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            maxLines = 5
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val pedido = pedidoProblema.value ?: return@Button
+                            val motivo = motivoProblema.value.trim()
+
+                            if (motivo.length < 4) {
+                                mensaje.value = "Debes indicar un motivo válido"
+                                return@Button
+                            }
+
+                            if (user == null) {
+                                mensaje.value = "Sesión inválida"
+                                return@Button
+                            }
+
+                            scope.launch {
+                                accionando.value = true
+                                mensaje.value = "Reportando problema..."
+
+                                val res = SmtApi.actualizarPedidoEstado(
+                                    user = user,
+                                    postId = pedido.id,
+                                    estado = "problema",
+                                    motivoProblema = motivo
+                                )
+
+                                mensaje.value = res.mensaje
+
+                                if (res.ok) {
+                                    mostrarProblema.value = false
+                                    pedidoProblema.value = null
+                                    motivoProblema.value = ""
+
+                                    val nuevos = SmtApi.cargarMisPedidos(user)
+                                    if (nuevos.ok) {
+                                        pedidos.value = nuevos.pedidos
+                                    }
+                                }
+
+                                accionando.value = false
+                            }
+                        },
+                        enabled = !accionando.value
+                    ) {
+                        Text(if (accionando.value) "Enviando..." else "Reportar")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = {
+                            mostrarProblema.value = false
                         },
                         enabled = !accionando.value
                     ) {

@@ -12,8 +12,8 @@ android {
         applicationId = "cl.smt.conductores"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.0.1s"
+        versionCode = 6
+        versionName = "2.0.2"
     }
 
     buildFeatures {

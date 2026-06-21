@@ -1,33 +1,36 @@
 package cl.smt.conductores.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val DarkColors = darkColorScheme(
+private val SmtDarkColors = darkColorScheme(
     primary = Color(0xFF00C853),
-    secondary = Color(0xFF22C55E),
-    background = Color(0xFF020617),
-    surface = Color(0xFF0B1120)
-)
+    onPrimary = Color.White,
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF00A344),
-    secondary = Color(0xFF16A34A),
-    background = Color(0xFFF8FAFC),
-    surface = Color.White
+    secondary = Color(0xFF22C55E),
+    onSecondary = Color.White,
+
+    background = Color(0xFF020617),
+    onBackground = Color(0xFFF8FAFC),
+
+    surface = Color(0xFF0B1120),
+    onSurface = Color(0xFFF8FAFC),
+
+    surfaceVariant = Color(0xFF111827),
+    onSurfaceVariant = Color(0xFFF8FAFC),
+
+    error = Color(0xFFEF4444),
+    onError = Color.White
 )
 
 @Composable
 fun SMTConductoresTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = SmtDarkColors,
         content = content
     )
 }
