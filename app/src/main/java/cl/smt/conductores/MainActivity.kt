@@ -1,9 +1,11 @@
 package cl.smt.conductores
 
+import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -16,26 +18,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
 import cl.smt.conductores.data.SmtUser
 import cl.smt.conductores.screens.CrearRutaScreen
+import cl.smt.conductores.screens.DireccionesScreen
 import cl.smt.conductores.screens.LoginScreen
 import cl.smt.conductores.screens.PanelScreen
 import cl.smt.conductores.screens.PermisosScreen
 import cl.smt.conductores.screens.UpdateRequiredScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
-import android.graphics.Color as AndroidColor
-import androidx.compose.foundation.background
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         window.navigationBarColor = AndroidColor.BLACK
         window.statusBarColor = AndroidColor.BLACK
+
         setContent {
             SMTConductoresTheme {
                 AppRoot()
@@ -86,11 +89,16 @@ fun AppRoot() {
 
     BackHandler(enabled = user != null) {
         when (screen) {
-            "crear_ruta", "perfil", "historial" -> {
+            "crear_ruta",
+            "perfil",
+            "historial",
+            "direcciones" -> {
                 screen = "panel"
             }
 
-            "permisos", "version_check", "update_required" -> {
+            "permisos",
+            "version_check",
+            "update_required" -> {
                 // No cerrar app ni saltar permisos/actualización con botón atrás.
             }
 
@@ -138,9 +146,18 @@ fun AppRoot() {
                 screen = "login"
             } else {
                 PanelScreen(
-                    onCrearRutaClick = { screen = "crear_ruta" },
-                    onPerfilClick = { screen = "perfil" },
-                    onHistorialClick = { screen = "historial" },
+                    onCrearRutaClick = {
+                        screen = "crear_ruta"
+                    },
+                    onPerfilClick = {
+                        screen = "perfil"
+                    },
+                    onHistorialClick = {
+                        screen = "historial"
+                    },
+                    onDireccionesClick = {
+                        screen = "direcciones"
+                    },
                     onCerrarSesionClick = {
                         SessionManager.clear(context)
                         user = null
@@ -163,6 +180,14 @@ fun AppRoot() {
             )
         }
 
+        "direcciones" -> {
+            DireccionesScreen(
+                onBack = {
+                    screen = "panel"
+                }
+            )
+        }
+
         "perfil" -> {
             PlaceholderScreen("Perfil pendiente") {
                 screen = "panel"
@@ -176,10 +201,15 @@ fun AppRoot() {
         }
 
         else -> {
-            screen = if (user == null) "login" else "panel"
+            screen = if (user == null) {
+                "login"
+            } else {
+                "panel"
+            }
         }
     }
 }
+
 @Composable
 fun LoadingScreen(text: String) {
     Box(

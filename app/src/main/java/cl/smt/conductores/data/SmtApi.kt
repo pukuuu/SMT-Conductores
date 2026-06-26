@@ -1,5 +1,6 @@
 package cl.smt.conductores.data
 
+import cl.smt.conductores.models.DireccionSmt
 import cl.smt.conductores.models.PedidoSmt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -647,4 +648,135 @@ object SmtApi {
             emptyList()
         }
     }
+
+    suspend fun cargarDirecciones(
+        user: SmtUser
+    ): DireccionesResponse = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("https://backend.smtransportes.app/wp-json/smt-direcciones/v1/direcciones?user_id=${user.id}&token=${user.token}")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) {
+                JSONObject(responseText)
+            } else {
+                JSONObject()
+            }
+
+            val okApi = json.optBoolean(
+                "ok",
+                json.optBoolean("success", statusCode in 200..299)
+            )
+
+            if (statusCode !in 200..299 || !okApi) {
+                return@withContext DireccionesResponse(
+                    ok = false,
+                    mensaje = extraerMensaje(json, "No se pudieron cargar direcciones")
+                )
+            }
+
+            val direccionesJson = when {
+                json.has("direcciones") -> json.optJSONArray("direcciones")
+                json.optJSONObject("data")?.has("direcciones") == true ->
+                    json.optJSONObject("data")?.optJSONArray("direcciones")
+                json.has("data") -> json.optJSONArray("data")
+                else -> null
+            }
+
+            val direcciones = mutableListOf<DireccionSmt>()
+
+            if (direccionesJson != null) {
+                for (i in 0 until direccionesJson.length()) {
+                    val d = direccionesJson.optJSONObject(i) ?: continue
+
+                    val fotos = mutableListOf<String>()
+                    val fotosJson = d.optJSONArray("fotos")
+
+                    if (fotosJson != null) {
+                        for (j in 0 until fotosJson.length()) {
+                            val item = fotosJson.opt(j)
+
+                            if (item is JSONObject) {
+                                val urlFoto = item.optString(
+                                    "url",
+                                    item.optString(
+                                        "foto_url",
+                                        item.optString("src")
+                                    )
+                                ).trim()
+
+                                if (urlFoto.isNotBlank()) {
+                                    fotos.add(urlFoto)
+                                }
+                            } else {
+                                val urlFoto = fotosJson.optString(j).trim()
+
+                                if (urlFoto.isNotBlank()) {
+                                    fotos.add(urlFoto)
+                                }
+                            }
+                        }
+                    }
+
+                    val fotoUnica = d.optString(
+                        "foto_url",
+                        d.optString("foto")
+                    ).trim()
+
+                    if (fotoUnica.isNotBlank() && !fotos.contains(fotoUnica)) {
+                        fotos.add(fotoUnica)
+                    }
+
+                    direcciones.add(
+                        DireccionSmt(
+                            id = d.optInt("id"),
+                            sucursal = d.optString("sucursal"),
+                            nombre = d.optString("nombre"),
+                            wazeUrl = d.optString(
+                                "waze_url",
+                                d.optString("wazeUrl")
+                            ),
+                            mapsUrl = d.optString(
+                                "maps_url",
+                                d.optString("mapsUrl")
+                            ),
+                            notas = d.optString(
+                                "notas",
+                                d.optString("indicaciones")
+                            ),
+                            fotos = fotos
+                        )
+                    )
+                }
+            }
+
+            DireccionesResponse(
+                ok = true,
+                mensaje = "Direcciones cargadas",
+                direcciones = direcciones.sortedBy { it.nombre.lowercase() }
+            )
+
+        } catch (e: Exception) {
+            DireccionesResponse(
+                ok = false,
+                mensaje = e.message ?: "Error cargando direcciones"
+            )
+        }
+    }
+
 }

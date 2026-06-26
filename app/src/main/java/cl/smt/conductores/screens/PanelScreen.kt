@@ -1,8 +1,9 @@
 package cl.smt.conductores.screens
 
-import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.net.Uri
 import android.widget.ImageView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -47,11 +47,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
 import cl.smt.conductores.gps.GpsController
@@ -62,17 +62,16 @@ import cl.smt.conductores.storage.WorkerEnvio
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
-import android.graphics.Matrix
-import androidx.exifinterface.media.ExifInterface
 
 @Composable
 fun PanelScreen(
     onCrearRutaClick: () -> Unit,
     onPerfilClick: () -> Unit,
     onHistorialClick: () -> Unit = {},
+    onDireccionesClick: () -> Unit = {},
     onCerrarSesionClick: () -> Unit = {},
     onSesionExpirada: () -> Unit = {}
-) {
+){
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val user = SessionManager.getUser(context)
@@ -88,6 +87,7 @@ fun PanelScreen(
     val hayPendientes = pedidos.value.any {
         it.estado.equals("pendiente", true)
     }
+
     val hayPedidosEnRuta = pedidos.value.any {
         it.estado.equals("en_ruta", true)
     }
@@ -151,6 +151,7 @@ fun PanelScreen(
 
         return file to uri
     }
+
     fun comprimirFotoParaEntrega(file: File): Boolean {
         return try {
             if (!file.exists() || file.length() <= 0L) return false
@@ -242,6 +243,7 @@ fun PanelScreen(
             false
         }
     }
+
     val tomarFotoLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { ok ->
@@ -351,7 +353,13 @@ fun PanelScreen(
                                 onCrearRutaClick()
                             }
                         )
-
+                        DropdownMenuItem(
+                            text = { Text("Ver direcciones") },
+                            onClick = {
+                                mostrarMenu.value = false
+                                onDireccionesClick()
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Historial") },
                             onClick = {
@@ -424,10 +432,8 @@ fun PanelScreen(
                             if (activo) {
                                 mostrarAvisoGps.value = true
                             } else {
-
                                 if (hayPedidosEnRuta) {
-                                    mensaje.value =
-                                        "No puedes apagar GPS con pedidos en ruta"
+                                    mensaje.value = "No puedes apagar GPS con pedidos en ruta"
                                     return@Switch
                                 }
 
@@ -672,12 +678,11 @@ fun PanelScreen(
                             onValueChange = { input ->
                                 temperaturaEntrega.value = input
                                     .replace(",", ".")
-                                    .filter { it.isDigit() || it == '.' }
+                                    .filter { it.isDigit() || it == '.' || it == ' ' }
+                                    .replace(Regex("\\s+"), " ")
                             },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Decimal
-                            ),
                             label = { Text("Temperatura") },
+                            placeholder = { Text("Ej: 2.2 3.1 4.4") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -760,14 +765,15 @@ fun PanelScreen(
                     Button(
                         onClick = {
                             if (!gpsActivo.value) {
-                                mensaje.value =
-                                    "GPS activo requerido para cerrar entrega"
+                                mensaje.value = "GPS activo requerido para cerrar entrega"
                                 return@Button
                             }
+
                             val pedido = pedidoEntrega.value ?: return@Button
                             val foto = fotoEntregaFile.value
+                            val temperaturaLimpia = temperaturaEntrega.value.trim()
 
-                            if (temperaturaEntrega.value.toDoubleOrNull() == null) {
+                            if (temperaturaLimpia.isBlank()) {
                                 mensaje.value = "Temperatura inválida"
                                 return@Button
                             }
@@ -781,12 +787,13 @@ fun PanelScreen(
                                 mensaje.value = "Debes tomar una foto"
                                 return@Button
                             }
+
                             mensaje.value = "Enviando foto ${(foto.length() / 1024)} KB - ${foto.name}"
 
                             val entrega = EntregaPendiente(
                                 postId = pedido.id,
                                 factura = pedido.factura,
-                                temperatura = temperaturaEntrega.value.trim(),
+                                temperatura = temperaturaLimpia,
                                 horaGuia = horaEntrega.value.trim(),
                                 fotoPath = foto.absolutePath
                             )
@@ -831,6 +838,7 @@ fun PanelScreen(
                 }
             )
         }
+
         if (mostrarProblema.value && pedidoProblema.value != null) {
             AlertDialog(
                 onDismissRequest = {
@@ -917,6 +925,7 @@ fun PanelScreen(
                 }
             )
         }
+
         if (mostrarAvisoGps.value) {
             AlertDialog(
                 onDismissRequest = {
@@ -928,15 +937,15 @@ fun PanelScreen(
                 text = {
                     Text(
                         """
-SMT Conductores recopila y utiliza la ubicación del dispositivo para:
+                        SMT Conductores recopila y utiliza la ubicación del dispositivo para:
 
-• Mostrar la ubicación del conductor en tiempo real.
-• Registrar recorridos de rutas asignadas.
-• Permitir seguimiento operativo y control logístico.
-• Mantener el monitoreo incluso cuando la aplicación está minimizada o la pantalla está bloqueada mientras exista una ruta activa.
+                        • Mostrar la ubicación del conductor en tiempo real.
+                        • Registrar recorridos de rutas asignadas.
+                        • Permitir seguimiento operativo y control logístico.
+                        • Mantener el monitoreo incluso cuando la aplicación está minimizada o la pantalla está bloqueada mientras exista una ruta activa.
 
-La ubicación es utilizada exclusivamente para fines operativos de transporte de SM Transportes.
-                """.trimIndent()
+                        La ubicación es utilizada exclusivamente para fines operativos de transporte de SM Transportes.
+                        """.trimIndent()
                     )
                 },
                 confirmButton = {
@@ -946,12 +955,11 @@ La ubicación es utilizada exclusivamente para fines operativos de transporte de
 
                             gpsActivo.value = GpsController.iniciar(context)
 
-                            mensaje.value =
-                                if (gpsActivo.value) {
-                                    "GPS activado"
-                                } else {
-                                    "GPS no configurado"
-                                }
+                            mensaje.value = if (gpsActivo.value) {
+                                "GPS activado"
+                            } else {
+                                "GPS no configurado"
+                            }
                         }
                     ) {
                         Text("Aceptar")
@@ -969,7 +977,6 @@ La ubicación es utilizada exclusivamente para fines operativos de transporte de
             )
         }
     }
-
 }
 
 @Composable

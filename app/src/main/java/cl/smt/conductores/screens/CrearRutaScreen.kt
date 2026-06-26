@@ -214,6 +214,39 @@ fun CrearRutaScreen(onBack: () -> Unit) {
                 }
             }
 
+            ExposedDropdownMenuBox(
+                expanded = patenteExpandida,
+                onExpandedChange = { patenteExpandida = !patenteExpandida }
+            ) {
+                OutlinedTextField(
+                    value = patente,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Patente") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = patenteExpandida)
+                    },
+                    modifier = Modifier
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth()
+                )
+
+                DropdownMenu(
+                    expanded = patenteExpandida,
+                    onDismissRequest = { patenteExpandida = false }
+                ) {
+                    patentes.forEach { p ->
+                        DropdownMenuItem(
+                            text = { Text(p) },
+                            onClick = {
+                                patente = p
+                                patenteExpandida = false
+                            }
+                        )
+                    }
+                }
+            }
+
             if (codigoEscaneado.isNotBlank()) {
                 Text("Código leído correctamente", color = Color(0xFF00C853))
             }
@@ -259,39 +292,6 @@ fun CrearRutaScreen(onBack: () -> Unit) {
                 label = { Text("Teléfono") },
                 modifier = Modifier.fillMaxWidth()
             )
-
-            ExposedDropdownMenuBox(
-                expanded = patenteExpandida,
-                onExpandedChange = { patenteExpandida = !patenteExpandida }
-            ) {
-                OutlinedTextField(
-                    value = patente,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Patente") },
-                    trailingIcon = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = patenteExpandida)
-                    },
-                    modifier = Modifier
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                        .fillMaxWidth()
-                )
-
-                DropdownMenu(
-                    expanded = patenteExpandida,
-                    onDismissRequest = { patenteExpandida = false }
-                ) {
-                    patentes.forEach { p ->
-                        DropdownMenuItem(
-                            text = { Text(p) },
-                            onClick = {
-                                patente = p
-                                patenteExpandida = false
-                            }
-                        )
-                    }
-                }
-            }
 
             ExposedDropdownMenuBox(
                 expanded = tipoExpandido,
