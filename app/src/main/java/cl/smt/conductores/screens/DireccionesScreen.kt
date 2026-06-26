@@ -13,17 +13,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -274,18 +277,26 @@ fun DireccionesScreen(
                             if (seleccion.wazeUrl.isNotBlank()) {
                                 Button(
                                     onClick = { abrirUrl(seleccion.wazeUrl) },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF33CCFF),
+                                        contentColor = Color.White
+                                    )
                                 ) {
-                                    Text("Waze")
+                                    Text("🚙 Waze", fontWeight = FontWeight.Black)
                                 }
                             }
 
                             if (seleccion.mapsUrl.isNotBlank()) {
                                 Button(
                                     onClick = { abrirUrl(seleccion.mapsUrl) },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00C853),
+                                        contentColor = Color.White
+                                    )
                                 ) {
-                                    Text("Maps")
+                                    Text("📍 Maps", fontWeight = FontWeight.Black)
                                 }
                             }
                         }
@@ -303,27 +314,34 @@ fun DireccionesScreen(
                             text = seleccion.notas.ifBlank { "Sin indicaciones registradas." }
                         )
 
-                        if (seleccion.fotos.isNotEmpty()) {
+                        val fotosValidas = seleccion.fotos.filter { it.isNotBlank() }
+
+                        if (fotosValidas.isNotEmpty()) {
                             Spacer(Modifier.height(18.dp))
 
                             Text(
-                                text = "Fotos:",
+                                text = if (fotosValidas.size > 1) {
+                                    "Fotos: ${fotosValidas.size} · desliza para ver más →"
+                                } else {
+                                    "Foto:"
+                                },
                                 fontWeight = FontWeight.Black
                             )
 
                             Spacer(Modifier.height(10.dp))
 
-                            seleccion.fotos.forEachIndexed { index, fotoUrl ->
-                                if (fotoUrl.isNotBlank()) {
-                                    FotoRemotaDireccion(
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                itemsIndexed(fotosValidas) { index, fotoUrl ->
+                                    FotoRemotaDireccionHorizontal(
                                         url = fotoUrl,
                                         label = "Foto ${index + 1}",
                                         onOpen = {
                                             abrirUrl(fotoUrl)
                                         }
                                     )
-
-                                    Spacer(Modifier.height(12.dp))
                                 }
                             }
                         }
@@ -344,7 +362,7 @@ fun DireccionesScreen(
 }
 
 @Composable
-fun FotoRemotaDireccion(
+fun FotoRemotaDireccionHorizontal(
     url: String,
     label: String,
     onOpen: () -> Unit
@@ -372,11 +390,23 @@ fun FotoRemotaDireccion(
         cargando.value = false
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
+    val bitmap = bitmapState.value
+    val anchoFoto = 260.dp
+
+    val modifierFoto = if (bitmap != null && bitmap.height > 0) {
+        Modifier
+            .width(anchoFoto)
+            .aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat())
+            .clickable { onOpen() }
+    } else {
+        Modifier
+            .width(anchoFoto)
             .height(180.dp)
-            .clickable { onOpen() },
+            .clickable { onOpen() }
+    }
+
+    Card(
+        modifier = modifierFoto,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color(0x11000000)
@@ -391,12 +421,12 @@ fun FotoRemotaDireccion(
                     CircularProgressIndicator()
                 }
 
-                bitmapState.value != null -> {
+                bitmap != null -> {
                     Image(
-                        bitmap = bitmapState.value!!.asImageBitmap(),
+                        bitmap = bitmap.asImageBitmap(),
                         contentDescription = label,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Fit
                     )
                 }
 
