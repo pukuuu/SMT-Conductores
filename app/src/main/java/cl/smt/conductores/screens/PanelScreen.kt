@@ -169,7 +169,7 @@ fun PanelScreen(
             BitmapFactory.decodeFile(file.absolutePath, opcionesBounds)
 
             var escala = 1
-            val maxLado = 1600
+            val maxLado = 2200
 
             while (
                 opcionesBounds.outWidth / escala > maxLado ||
@@ -225,7 +225,7 @@ fun PanelScreen(
             }
 
             FileOutputStream(file, false).use { out ->
-                bitmapFinal.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                bitmapFinal.compress(Bitmap.CompressFormat.JPEG, 90, out)
             }
 
             if (bitmapFinal != bitmapOrientado) {
