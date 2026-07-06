@@ -15,6 +15,7 @@ import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 object SmtApi {
@@ -67,6 +68,7 @@ object SmtApi {
 
     private const val AUTH_URL = "https://backend.smtransportes.app/wp-json/smt/v1"
     private const val CHOFER_URL = "https://backend.smtransportes.app/wp-json/smt-chofer/v1"
+    private const val DIRECCIONES_URL = "https://backend.smtransportes.app/wp-json/smt-direcciones/v1"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -649,11 +651,95 @@ object SmtApi {
         }
     }
 
+    suspend fun verificarNombreVinculacion(
+        user: SmtUser,
+        nombre: String
+    ): VerificarVinculacionResponse = withContext(Dispatchers.IO) {
+        if (nombre.isBlank()) {
+            return@withContext VerificarVinculacionResponse(
+                ok = true,
+                requiereVinculacion = false
+            )
+        }
+
+        try {
+            val nombreCodificado = URLEncoder.encode(nombre.trim(), "UTF-8")
+            val tokenCodificado = URLEncoder.encode(user.token, "UTF-8")
+
+            val url = URL(
+                "$DIRECCIONES_URL/nombres-vinculacion" +
+                        "?nombre=$nombreCodificado" +
+                        "&user_id=${user.id}" +
+                        "&token=$tokenCodificado"
+            )
+
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val statusCode = conn.responseCode
+
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+            }
+
+            val json = if (responseText.isNotBlank()) {
+                JSONObject(responseText)
+            } else {
+                JSONObject()
+            }
+
+            val okApi = json.optBoolean(
+                "success",
+                json.optBoolean("ok", statusCode in 200..299)
+            )
+
+            if (statusCode !in 200..299 || !okApi) {
+                return@withContext VerificarVinculacionResponse(
+                    ok = false,
+                    mensaje = extraerMensaje(
+                        json,
+                        "No se pudo verificar el nombre de la guía"
+                    )
+                )
+            }
+
+            val consulta = when {
+                json.optJSONObject("data")?.has("consulta") == true ->
+                    json.optJSONObject("data")?.optJSONObject("consulta")
+
+                json.has("consulta") -> json.optJSONObject("consulta")
+                else -> null
+            }
+
+            VerificarVinculacionResponse(
+                ok = true,
+                requiereVinculacion = consulta?.optBoolean(
+                    "requiere_vinculacion",
+                    false
+                ) ?: false
+            )
+
+        } catch (e: Exception) {
+            VerificarVinculacionResponse(
+                ok = false,
+                mensaje = e.message ?: "Error verificando nombre de vinculación"
+            )
+        }
+    }
+
     suspend fun cargarDirecciones(
         user: SmtUser
     ): DireccionesResponse = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://backend.smtransportes.app/wp-json/smt-direcciones/v1/direcciones?user_id=${user.id}&token=${user.token}")
+            val url = URL("$DIRECCIONES_URL/direcciones?user_id=${user.id}&token=${user.token}")
             val conn = url.openConnection() as HttpURLConnection
 
             conn.requestMethod = "GET"

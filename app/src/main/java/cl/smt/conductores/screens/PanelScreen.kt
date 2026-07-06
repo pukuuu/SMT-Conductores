@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -52,9 +53,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
+import cl.smt.conductores.components.DireccionDetalleDialog
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
 import cl.smt.conductores.gps.GpsController
+import cl.smt.conductores.models.DireccionSmt
 import cl.smt.conductores.models.EntregaPendiente
 import cl.smt.conductores.models.PedidoSmt
 import cl.smt.conductores.storage.ColaEntregas
@@ -62,6 +65,7 @@ import cl.smt.conductores.storage.WorkerEnvio
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 @Composable
 fun PanelScreen(
@@ -78,6 +82,8 @@ fun PanelScreen(
 
     val mostrarAvisoGps = remember { mutableStateOf(false) }
     val pedidos = remember { mutableStateOf<List<PedidoSmt>>(emptyList()) }
+    val direcciones = remember { mutableStateOf<List<DireccionSmt>>(emptyList()) }
+    val direccionSeleccionada = remember { mutableStateOf<DireccionSmt?>(null) }
     val entregasLocales = remember { mutableStateOf(ColaEntregas.obtenerEntregas(context)) }
     val cargando = remember { mutableStateOf(false) }
     val accionando = remember { mutableStateOf(false) }
@@ -134,6 +140,18 @@ fun PanelScreen(
                 pedidos.value = res.pedidos
             } else {
                 mensaje.value = res.mensaje
+            }
+        }
+    }
+
+    fun cargarDirecciones() {
+        if (user == null) return
+
+        scope.launch {
+            val res = SmtApi.cargarDirecciones(user)
+
+            if (res.ok) {
+                direcciones.value = res.direcciones
             }
         }
     }
@@ -269,6 +287,7 @@ fun PanelScreen(
 
     LaunchedEffect(Unit) {
         cargarPedidos()
+        cargarDirecciones()
     }
 
     val pedidosVisibles = pedidos.value.filter { pedido ->
@@ -281,6 +300,14 @@ fun PanelScreen(
                         pedido.estado.equals("pendiente", true) ||
                                 pedido.estado.equals("en_ruta", true)
                         )
+    }
+
+    val direccionesPorNombre = remember(direcciones.value) {
+        direcciones.value
+            .filter { it.nombre.isNotBlank() }
+            .associateBy { direccion ->
+                normalizarNombreDireccion(direccion.nombre)
+            }
     }
 
     Box(
@@ -507,7 +534,10 @@ fun PanelScreen(
             Spacer(Modifier.height(22.dp))
 
             OutlinedButton(
-                onClick = { cargarPedidos() },
+                onClick = {
+                    cargarPedidos()
+                    cargarDirecciones()
+                },
                 enabled = !cargando.value && !accionando.value,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -633,9 +663,23 @@ fun PanelScreen(
                 )
             } else {
                 pedidosVisibles.forEach { pedido ->
+                    val nombrePedidoNormalizado = normalizarNombreDireccion(
+                        pedido.paciente
+                    )
+
+                    val direccionVinculada = if (nombrePedidoNormalizado.isBlank()) {
+                        null
+                    } else {
+                        direccionesPorNombre[nombrePedidoNormalizado]
+                    }
+
                     PedidoCardPanel(
                         pedido = pedido,
+                        direccionVinculada = direccionVinculada,
                         mostrarAcciones = pedido.estado.equals("en_ruta", true),
+                        onVerDireccion = { direccion ->
+                            direccionSeleccionada.value = direccion
+                        },
                         onEntregar = {
                             pedidoEntrega.value = pedido
                             temperaturaEntrega.value = ""
@@ -926,6 +970,20 @@ fun PanelScreen(
             )
         }
 
+        val direccionDetalle = direccionSeleccionada.value
+
+        if (direccionDetalle != null) {
+            DireccionDetalleDialog(
+                direccion = direccionDetalle,
+                onDismiss = {
+                    direccionSeleccionada.value = null
+                },
+                onError = { error ->
+                    mensaje.value = error
+                }
+            )
+        }
+
         if (mostrarAvisoGps.value) {
             AlertDialog(
                 onDismissRequest = {
@@ -979,10 +1037,19 @@ fun PanelScreen(
     }
 }
 
+private fun normalizarNombreDireccion(valor: String): String {
+    return valor
+        .trim()
+        .lowercase(Locale.ROOT)
+        .replace(Regex("\\s+"), " ")
+}
+
 @Composable
 fun PedidoCardPanel(
     pedido: PedidoSmt,
+    direccionVinculada: DireccionSmt?,
     mostrarAcciones: Boolean,
+    onVerDireccion: (DireccionSmt) -> Unit,
     onEntregar: () -> Unit,
     onProblema: () -> Unit
 ) {
@@ -996,12 +1063,36 @@ fun PedidoCardPanel(
         Column(
             modifier = Modifier.padding(18.dp)
         ) {
-            Text(
-                "Factura ${pedido.factura}",
-                color = Color(0xFFF8FAFC),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Factura ${pedido.factura}",
+                    color = Color(0xFFF8FAFC),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (direccionVinculada != null) {
+                    IconButton(
+                        onClick = { onVerDireccion(direccionVinculada) },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(
+                                color = Color(0xFF00C853),
+                                shape = CircleShape
+                            )
+                    ) {
+                        Text(
+                            text = "📍",
+                            fontSize = 20.sp
+                        )
+                    }
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
 

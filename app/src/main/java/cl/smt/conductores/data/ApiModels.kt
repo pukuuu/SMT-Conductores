@@ -24,3 +24,9 @@ data class PatentesResponse(
     val mensaje: String = "",
     val patentes: List<String> = emptyList()
 )
+
+data class VerificarVinculacionResponse(
+    val ok: Boolean,
+    val requiereVinculacion: Boolean = false,
+    val mensaje: String = ""
+)

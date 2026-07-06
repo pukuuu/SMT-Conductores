@@ -4,7 +4,10 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -15,12 +18,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cl.smt.conductores.components.Camera2BarcodeScanner
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
+import cl.smt.conductores.models.DireccionSmt
 import com.google.mlkit.vision.barcode.common.Barcode
 import kotlinx.coroutines.launch
+import java.text.Normalizer
 
 data class GuiaPdf417Data(
     val factura: String = "",
@@ -66,6 +72,13 @@ fun esMensajeOk(mensaje: String): Boolean {
             mensaje.contains("escaneada", true) ||
             mensaje.contains("creado", true) ||
             mensaje.contains("creada", true)
+}
+
+fun normalizarBusquedaPaciente(valor: String): String {
+    return Normalizer.normalize(valor.trim(), Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}+"), "")
+        .lowercase()
+        .replace(Regex("\\s+"), " ")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,14 +128,33 @@ fun CrearRutaScreen(onBack: () -> Unit) {
     var mostrandoScanner by remember { mutableStateOf(false) }
     var flashActivo by remember { mutableStateOf(false) }
 
-    fun crearPedidoDesdeFormulario() {
-        if (user == null) {
-            mensaje = "Sesión inválida"
-            return
-        }
+    var mostrarPreguntaVinculacion by remember { mutableStateOf(false) }
+    var mostrarSelectorPaciente by remember { mutableStateOf(false) }
+    var nombreOriginalPendiente by remember { mutableStateOf("") }
 
-        if (factura.isBlank() || direccion.isBlank() || patente.isBlank()) {
-            mensaje = "Faltan datos"
+    var direccionesDisponibles by remember { mutableStateOf<List<DireccionSmt>>(emptyList()) }
+    var direccionSeleccionada by remember { mutableStateOf<DireccionSmt?>(null) }
+    var busquedaPaciente by remember { mutableStateOf("") }
+    var cargandoDirecciones by remember { mutableStateOf(false) }
+    var errorDirecciones by remember { mutableStateOf("") }
+
+    fun limpiarFormulario() {
+        codigoEscaneado = ""
+        factura = ""
+        paciente = ""
+        direccion = ""
+        comuna = ""
+        telefono = ""
+        nombreOriginalPendiente = ""
+        direccionSeleccionada = null
+        busquedaPaciente = ""
+    }
+
+    fun enviarPedido(nombrePacienteFinal: String) {
+        val usuarioActual = user
+
+        if (usuarioActual == null) {
+            mensaje = "Sesión inválida"
             return
         }
 
@@ -131,9 +163,9 @@ fun CrearRutaScreen(onBack: () -> Unit) {
             mensaje = ""
 
             val res = SmtApi.crearPedido(
-                user = user,
+                user = usuarioActual,
                 factura = factura,
-                paciente = paciente,
+                paciente = nombrePacienteFinal,
                 direccion = direccion,
                 comuna = comuna,
                 telefono = telefono,
@@ -145,12 +177,83 @@ fun CrearRutaScreen(onBack: () -> Unit) {
             mensaje = mensajeCrearRutaLimpio(res.mensaje)
 
             if (res.ok) {
-                codigoEscaneado = ""
-                factura = ""
-                paciente = ""
-                direccion = ""
-                comuna = ""
-                telefono = ""
+                limpiarFormulario()
+            } else {
+                paciente = nombrePacienteFinal
+            }
+        }
+    }
+
+    fun abrirSelectorPacientes() {
+        val usuarioActual = user
+
+        if (usuarioActual == null) {
+            mensaje = "Sesión inválida"
+            return
+        }
+
+        mostrarPreguntaVinculacion = false
+        mostrarSelectorPaciente = true
+        busquedaPaciente = ""
+        direccionSeleccionada = null
+        errorDirecciones = ""
+
+        scope.launch {
+            cargandoDirecciones = true
+
+            val res = SmtApi.cargarDirecciones(usuarioActual)
+
+            cargandoDirecciones = false
+
+            if (res.ok) {
+                direccionesDisponibles = res.direcciones
+            } else {
+                direccionesDisponibles = emptyList()
+                errorDirecciones = res.mensaje
+            }
+        }
+    }
+
+    fun continuarSinVincular() {
+        val nombreOriginal = nombreOriginalPendiente.ifBlank { paciente }
+
+        mostrarPreguntaVinculacion = false
+        mostrarSelectorPaciente = false
+        enviarPedido(nombreOriginal)
+    }
+
+    fun crearPedidoDesdeFormulario() {
+        val usuarioActual = user
+
+        if (usuarioActual == null) {
+            mensaje = "Sesión inválida"
+            return
+        }
+
+        if (factura.isBlank() || direccion.isBlank() || patente.isBlank()) {
+            mensaje = "Faltan datos"
+            return
+        }
+
+        scope.launch {
+            cargando = true
+            mensaje = "Verificando guía..."
+
+            val verificacion = SmtApi.verificarNombreVinculacion(
+                user = usuarioActual,
+                nombre = paciente
+            )
+
+            cargando = false
+
+            if (verificacion.ok && verificacion.requiereVinculacion) {
+                nombreOriginalPendiente = paciente.trim()
+                mensaje = ""
+                mostrarPreguntaVinculacion = true
+            } else {
+                // La verificación nunca debe bloquear la operación.
+                // Si el endpoint falla, el pedido se crea normalmente.
+                enviarPedido(paciente.trim())
             }
         }
     }
@@ -430,5 +533,212 @@ fun CrearRutaScreen(onBack: () -> Unit) {
                 }
             }
         }
+
+        if (mostrarPreguntaVinculacion) {
+            AlertDialog(
+                onDismissRequest = {
+                    mostrarPreguntaVinculacion = false
+                },
+                title = {
+                    Text(
+                        text = "Vincular paciente",
+                        fontWeight = FontWeight.Black
+                    )
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Se detectó que la guía contiene una dirección o ambulatorio erróneos."
+                        )
+
+                        Text(
+                            text = "¿Desea vincularlo a un paciente?",
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        if (nombreOriginalPendiente.isNotBlank()) {
+                            Text(
+                                text = "Nombre detectado: $nombreOriginalPendiente",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            abrirSelectorPacientes()
+                        }
+                    ) {
+                        Text("Sí")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = {
+                            continuarSinVincular()
+                        }
+                    ) {
+                        Text("No")
+                    }
+                }
+            )
+        }
+
+        if (mostrarSelectorPaciente) {
+            val busquedaNormalizada = normalizarBusquedaPaciente(busquedaPaciente)
+
+            val direccionesFiltradas = direccionesDisponibles.filter { item ->
+                busquedaNormalizada.isBlank() ||
+                        normalizarBusquedaPaciente(item.nombre)
+                            .contains(busquedaNormalizada)
+            }
+
+            AlertDialog(
+                onDismissRequest = {
+                    mostrarSelectorPaciente = false
+                },
+                title = {
+                    Text(
+                        text = "Seleccionar paciente",
+                        fontWeight = FontWeight.Black
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = busquedaPaciente,
+                            onValueChange = {
+                                busquedaPaciente = it
+                                direccionSeleccionada = null
+                            },
+                            label = { Text("Buscar paciente") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        when {
+                            cargandoDirecciones -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(150.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                }
+                            }
+
+                            errorDirecciones.isNotBlank() -> {
+                                Text(
+                                    text = errorDirecciones,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            direccionesFiltradas.isEmpty() -> {
+                                Text(
+                                    text = "No se encontraron pacientes en Direcciones.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            else -> {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 140.dp, max = 350.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(direccionesFiltradas) { item ->
+                                        val seleccionado = direccionSeleccionada?.id == item.id
+
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    direccionSeleccionada = item
+                                                },
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (seleccionado) {
+                                                    Color(0xFF123D2A)
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                                }
+                                            ),
+                                            border = BorderStroke(
+                                                width = if (seleccionado) 2.dp else 1.dp,
+                                                color = if (seleccionado) {
+                                                    Color(0xFF00C853)
+                                                } else {
+                                                    MaterialTheme.colorScheme.outlineVariant
+                                                }
+                                            )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                RadioButton(
+                                                    selected = seleccionado,
+                                                    onClick = {
+                                                        direccionSeleccionada = item
+                                                    }
+                                                )
+
+                                                Spacer(Modifier.width(8.dp))
+
+                                                Text(
+                                                    text = item.nombre.ifBlank { "Sin nombre" },
+                                                    modifier = Modifier.weight(1f),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val seleccion = direccionSeleccionada
+
+                            if (seleccion != null) {
+                                paciente = seleccion.nombre
+                                mostrarSelectorPaciente = false
+                                enviarPedido(seleccion.nombre)
+                            }
+                        },
+                        enabled = direccionSeleccionada != null && !cargandoDirecciones
+                    ) {
+                        Text("Aceptar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            continuarSinVincular()
+                        },
+                        enabled = !cargandoDirecciones
+                    ) {
+                        Text("No vincular a un paciente")
+                    }
+                }
+            )
+        }
+
     }
 }
