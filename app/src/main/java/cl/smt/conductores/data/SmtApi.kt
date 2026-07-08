@@ -86,6 +86,20 @@ object SmtApi {
         )
     }
 
+
+    private fun JSONObject.optDoubleNullable(vararg keys: String): Double? {
+        for (key in keys) {
+            if (!has(key) || isNull(key)) continue
+
+            val raw = optString(key).trim().replace(",", ".")
+            val value = raw.toDoubleOrNull()
+
+            if (value != null) return value
+        }
+
+        return null
+    }
+
     suspend fun login(
         usuario: String,
         password: String
@@ -845,7 +859,9 @@ object SmtApi {
                                 "notas",
                                 d.optString("indicaciones")
                             ),
-                            fotos = fotos
+                            fotos = fotos,
+                            lat = d.optDoubleNullable("lat", "latitud"),
+                            lng = d.optDoubleNullable("lng", "longitud", "lon")
                         )
                     )
                 }

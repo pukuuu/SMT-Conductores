@@ -7,5 +7,7 @@ data class DireccionSmt(
     val wazeUrl: String = "",
     val mapsUrl: String = "",
     val notas: String = "",
-    val fotos: List<String> = emptyList()
+    val fotos: List<String> = emptyList(),
+    val lat: Double? = null,
+    val lng: Double? = null
 )
