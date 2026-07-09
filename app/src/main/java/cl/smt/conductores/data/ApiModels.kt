@@ -30,3 +30,29 @@ data class VerificarVinculacionResponse(
     val requiereVinculacion: Boolean = false,
     val mensaje: String = ""
 )
+
+data class RutaBackendPoint(
+    val pedidoId: Int,
+    val nombre: String,
+    val lat: Double,
+    val lng: Double
+)
+
+data class RutaGeometryPoint(
+    val lat: Double,
+    val lng: Double
+)
+
+data class OptimizarRutaResponse(
+    val ok: Boolean,
+    val mensaje: String = "",
+    val orderedIds: List<Int> = emptyList(),
+    val geometry: List<RutaGeometryPoint> = emptyList(),
+    val durationSeconds: Double? = null,
+    val distanceMeters: Double? = null,
+    val originalDurationSeconds: Double? = null,
+    val optimizedDurationSeconds: Double? = null,
+    val savedSeconds: Double? = null,
+    val source: String = "",
+    val algorithm: String = ""
+)

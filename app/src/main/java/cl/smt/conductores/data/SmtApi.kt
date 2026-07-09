@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.OutputStreamWriter
@@ -877,6 +878,163 @@ object SmtApi {
             DireccionesResponse(
                 ok = false,
                 mensaje = e.message ?: "Error cargando direcciones"
+            )
+        }
+    }
+
+
+    suspend fun optimizarRuta(
+        user: SmtUser,
+        inicioLat: Double,
+        inicioLng: Double,
+        entregas: List<RutaBackendPoint>
+    ): OptimizarRutaResponse = withContext(Dispatchers.IO) {
+        if (entregas.isEmpty()) {
+            return@withContext OptimizarRutaResponse(
+                ok = false,
+                mensaje = "No hay entregas con coordenadas para optimizar"
+            )
+        }
+
+        try {
+            val url = URL("$DIRECCIONES_URL/optimizar-ruta")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 20000
+            conn.readTimeout = 90000
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("X-SMT-Token", user.token)
+            conn.setRequestProperty("Authorization", "Bearer ${user.token}")
+
+            val body = JSONObject().apply {
+                put("user_id", user.id)
+                put("token", user.token)
+                put(
+                    "inicio",
+                    JSONObject().apply {
+                        put("nombre", "Laboratorio SMT Santiago")
+                        put("lat", inicioLat)
+                        put("lng", inicioLng)
+                    }
+                )
+                put(
+                    "entregas",
+                    JSONArray().apply {
+                        entregas.forEach { entrega ->
+                            put(
+                                JSONObject().apply {
+                                    put("pedido_id", entrega.pedidoId)
+                                    put("nombre", entrega.nombre)
+                                    put("lat", entrega.lat)
+                                    put("lng", entrega.lng)
+                                }
+                            )
+                        }
+                    }
+                )
+            }
+
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(body.toString())
+            }
+
+            val statusCode = conn.responseCode
+            val responseText = if (statusCode in 200..299) {
+                conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            } else {
+                conn.errorStream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
+            }
+
+            val json = if (responseText.isNotBlank()) {
+                JSONObject(responseText)
+            } else {
+                JSONObject()
+            }
+
+            val okApi = json.optBoolean(
+                "success",
+                json.optBoolean("ok", statusCode in 200..299)
+            )
+
+            if (statusCode !in 200..299 || !okApi) {
+                return@withContext OptimizarRutaResponse(
+                    ok = false,
+                    mensaje = extraerMensaje(
+                        json,
+                        "No se pudo optimizar la ruta por calles"
+                    )
+                )
+            }
+
+            val data = json.optJSONObject("data") ?: json
+            val ordenJson = data.optJSONArray("orden")
+            val orderedIds = buildList {
+                if (ordenJson != null) {
+                    for (i in 0 until ordenJson.length()) {
+                        val raw = ordenJson.opt(i)
+                        val id = when (raw) {
+                            is Number -> raw.toInt()
+                            is String -> raw.toIntOrNull()
+                            else -> null
+                        }
+                        if (id != null && id > 0 && !contains(id)) add(id)
+                    }
+                }
+            }
+
+            val geometryJson = data.optJSONObject("geometria")
+            val coordinatesJson = geometryJson?.optJSONArray("coordinates")
+            val geometry = buildList {
+                if (coordinatesJson != null) {
+                    for (i in 0 until coordinatesJson.length()) {
+                        val pair = coordinatesJson.optJSONArray(i) ?: continue
+                        if (pair.length() < 2) continue
+
+                        // GeoJSON y OSRM siempre entregan [longitud, latitud].
+                        val lng = pair.optDouble(0, Double.NaN)
+                        val lat = pair.optDouble(1, Double.NaN)
+
+                        if (
+                            lat.isFinite() && lng.isFinite() &&
+                            lat in -90.0..90.0 && lng in -180.0..180.0
+                        ) {
+                            add(RutaGeometryPoint(lat = lat, lng = lng))
+                        }
+                    }
+                }
+            }
+
+            if (orderedIds.size != entregas.size) {
+                return@withContext OptimizarRutaResponse(
+                    ok = false,
+                    mensaje = "El backend no devolvió el orden completo de la ruta"
+                )
+            }
+
+            OptimizarRutaResponse(
+                ok = true,
+                mensaje = "Ruta optimizada por calles",
+                orderedIds = orderedIds,
+                geometry = geometry,
+                durationSeconds = data.optDoubleNullable("duracion_segundos"),
+                distanceMeters = data.optDoubleNullable("distancia_metros"),
+                originalDurationSeconds = data.optDoubleNullable(
+                    "duracion_orden_original_segundos"
+                ),
+                optimizedDurationSeconds = data.optDoubleNullable(
+                    "duracion_orden_optimizado_segundos"
+                ),
+                savedSeconds = data.optDoubleNullable("ahorro_estimado_segundos"),
+                source = data.optString("origen"),
+                algorithm = data.optString("algoritmo")
+            )
+        } catch (e: Exception) {
+            OptimizarRutaResponse(
+                ok = false,
+                mensaje = e.message ?: "Error consultando optimización de ruta"
             )
         }
     }

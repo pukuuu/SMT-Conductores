@@ -71,8 +71,10 @@ import cl.smt.conductores.components.DireccionDetalleDialog
 import cl.smt.conductores.components.RutaMap
 import cl.smt.conductores.components.RutaMapaEntrega
 import cl.smt.conductores.components.RutaMapaInicio
+import cl.smt.conductores.components.RutaMapaCoordenada
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
+import cl.smt.conductores.data.RutaBackendPoint
 import cl.smt.conductores.gps.GpsController
 import cl.smt.conductores.models.DireccionSmt
 import cl.smt.conductores.models.EntregaPendiente
@@ -113,6 +115,10 @@ fun PanelScreen(
     // No modifica el pedido ni crea una vinculación permanente en el backend.
     val modoOrdenManual = remember { mutableStateOf(true) }
     val rutaOptimizadaAplicada = remember { mutableStateOf(false) }
+    val rutaGeometriaOsrm = remember {
+        mutableStateOf<List<RutaMapaCoordenada>>(emptyList())
+    }
+    val optimizandoRuta = remember { mutableStateOf(false) }
     val ordenManualIds = remember { mutableStateListOf<Int>() }
     val preferenciasOrden = remember {
         context.getSharedPreferences("smt_orden_ruta", 0)
@@ -411,6 +417,7 @@ fun PanelScreen(
             ultimaFirmaPedidosRuta.value != firmaActual
         ) {
             rutaOptimizadaAplicada.value = false
+            rutaGeometriaOsrm.value = emptyList()
         }
         ultimaFirmaPedidosRuta.value = firmaActual
 
@@ -462,6 +469,7 @@ fun PanelScreen(
             .apply()
 
         rutaOptimizadaAplicada.value = false
+        rutaGeometriaOsrm.value = emptyList()
         return true
     }
 
@@ -577,61 +585,127 @@ fun PanelScreen(
     }
 
     fun optimizarRutaActual() {
+        if (user == null) {
+            mensaje.value = "Sesión inválida"
+            return
+        }
+
         if (entregasEnRuta.isEmpty()) {
             mensaje.value = "No hay entregas en ruta para optimizar"
             return
         }
 
-        val puntosConCoordenadas = entregasEnRuta.mapNotNull { item ->
+        val puntosBackend = entregasEnRuta.mapNotNull { item ->
             val direccion = item.direccion ?: return@mapNotNull null
             val lat = direccion.lat ?: return@mapNotNull null
             val lng = direccion.lng ?: return@mapNotNull null
 
             if (!direccion.tieneCoordenadasValidas()) return@mapNotNull null
 
-            RutaGeoPoint(
-                id = item.pedido.id,
+            RutaBackendPoint(
+                pedidoId = item.pedido.id,
+                nombre = item.pedido.paciente,
                 lat = lat,
                 lng = lng
             )
         }
 
-        if (puntosConCoordenadas.size < 2) {
+        if (puntosBackend.size < 2) {
             mensaje.value = "Se necesitan al menos 2 entregas con coordenadas"
             return
         }
 
-        val resultadoOptimizacion = RutaOptimizer.optimizeShortestPath(
-            points = puntosConCoordenadas,
-            startLat = laboratorioRuta.lat,
-            startLng = laboratorioRuta.lng
-        )
-
-        val idsOptimizados = resultadoOptimizacion.orderedIds
-
+        val idsConCoordenadas = puntosBackend.map { it.pedidoId }.toSet()
         val idsSinCoordenadas = entregasEnRuta
-            .filterNot { it.direccion.tieneCoordenadasValidas() }
             .map { it.pedido.id }
+            .filterNot { it in idsConCoordenadas }
 
-        val ordenFinal = idsOptimizados + idsSinCoordenadas
+        fun guardarOrden(ordenConCoordenadas: List<Int>) {
+            val ordenFinal = ordenConCoordenadas + idsSinCoordenadas
 
-        ordenManualIds.clear()
-        ordenManualIds.addAll(ordenFinal)
+            ordenManualIds.clear()
+            ordenManualIds.addAll(ordenFinal)
 
-        preferenciasOrden.edit()
-            .putString(claveOrden, ordenFinal.joinToString(","))
-            .apply()
+            preferenciasOrden.edit()
+                .putString(claveOrden, ordenFinal.joinToString(","))
+                .apply()
+        }
 
-        rutaOptimizadaAplicada.value = true
+        scope.launch {
+            optimizandoRuta.value = true
+            mensaje.value = "Calculando la ruta más rápida por calles..."
 
-        val distanciaAntes = String.format(Locale.US, "%.1f", resultadoOptimizacion.originalDistanceKm)
-        val distanciaDespues = String.format(Locale.US, "%.1f", resultadoOptimizacion.optimizedDistanceKm)
-        val ahorro = String.format(Locale.US, "%.1f", resultadoOptimizacion.savedDistanceKm)
+            try {
+                val resultadoBackend = SmtApi.optimizarRuta(
+                    user = user,
+                    inicioLat = laboratorioRuta.lat,
+                    inicioLng = laboratorioRuta.lng,
+                    entregas = puntosBackend
+                )
 
-        mensaje.value = if (resultadoOptimizacion.savedDistanceKm >= 0.05) {
-            "Ruta reordenada: $distanciaAntes km → $distanciaDespues km (ahorro aprox. $ahorro km)"
-        } else {
-            "La ruta ya estaba prácticamente optimizada: $distanciaDespues km"
+                if (resultadoBackend.ok) {
+                    guardarOrden(resultadoBackend.orderedIds)
+
+                    rutaGeometriaOsrm.value = resultadoBackend.geometry.map { punto ->
+                        RutaMapaCoordenada(
+                            lat = punto.lat,
+                            lng = punto.lng
+                        )
+                    }
+                    rutaOptimizadaAplicada.value = true
+
+                    val distanciaKm = resultadoBackend.distanceMeters
+                        ?.div(1000.0)
+                        ?.let { String.format(Locale.US, "%.1f", it) }
+
+                    val duracionMin = resultadoBackend.durationSeconds
+                        ?.div(60.0)
+                        ?.let { String.format(Locale.US, "%.0f", it) }
+
+                    val ahorroMin = resultadoBackend.savedSeconds
+                        ?.div(60.0)
+                        ?.takeIf { it >= 0.5 }
+                        ?.let { String.format(Locale.US, "%.0f", it) }
+
+                    mensaje.value = buildString {
+                        append("Ruta optimizada por calles")
+                        if (distanciaKm != null) append(": $distanciaKm km")
+                        if (duracionMin != null) append(" · aprox. $duracionMin min")
+                        if (ahorroMin != null) append(" · ahorro estimado $ahorroMin min")
+                    }
+                } else {
+                    // Respaldo: si OSRM o el backend fallan, la app sigue siendo usable.
+                    val puntosLocales = puntosBackend.map { punto ->
+                        RutaGeoPoint(
+                            id = punto.pedidoId,
+                            lat = punto.lat,
+                            lng = punto.lng
+                        )
+                    }
+
+                    val resultadoLocal = RutaOptimizer.optimizeShortestPath(
+                        points = puntosLocales,
+                        startLat = laboratorioRuta.lat,
+                        startLng = laboratorioRuta.lng
+                    )
+
+                    guardarOrden(resultadoLocal.orderedIds)
+                    rutaGeometriaOsrm.value = emptyList()
+                    rutaOptimizadaAplicada.value = true
+
+                    val distanciaLocal = String.format(
+                        Locale.US,
+                        "%.1f",
+                        resultadoLocal.optimizedDistanceKm
+                    )
+
+                    mensaje.value =
+                        "OSRM no respondió (${resultadoBackend.mensaje}). " +
+                                "Se aplicó el respaldo local: $distanciaLocal km"
+                }
+            } finally {
+                optimizandoRuta.value = false
+            }
         }
     }
 
@@ -895,7 +969,10 @@ fun PanelScreen(
                         mensaje.value.contains("guardada", true) ||
                         mensaje.value.contains("activado", true) ||
                         mensaje.value.contains("iniciada", true) ||
-                        mensaje.value.contains("iniciado", true)
+                        mensaje.value.contains("iniciado", true) ||
+                        mensaje.value.contains("optimizada", true) ||
+                        mensaje.value.contains("reordenada", true) ||
+                        mensaje.value.contains("calculando", true)
                     ) {
                         verde
                     } else {
@@ -911,6 +988,7 @@ fun PanelScreen(
                 entregas = entregasMapa,
                 laboratorio = laboratorioRuta,
                 rutaOptimizada = rutaOptimizadaAplicada.value,
+                rutaGeometria = rutaGeometriaOsrm.value,
                 onEntregaClick = { pedidoId ->
                     val item = itemsParaMapa.firstOrNull {
                         it.pedido.id == pedidoId
@@ -1010,6 +1088,7 @@ fun PanelScreen(
                                     modoOrdenManual.value = !modoOrdenManual.value
                                     if (modoOrdenManual.value) {
                                         rutaOptimizadaAplicada.value = false
+                                        rutaGeometriaOsrm.value = emptyList()
                                     }
                                 }
                                 .padding(vertical = 8.dp, horizontal = 4.dp)
@@ -1097,18 +1176,37 @@ fun PanelScreen(
                             onClick = {
                                 optimizarRutaActual()
                             },
+                            enabled = !optimizandoRuta.value,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
                             shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = verde)
-                        ) {
-                            Text(
-                                "✨ Optimizar ruta",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = verde,
+                                disabledContainerColor = Color(0xFF166534)
                             )
+                        ) {
+                            if (optimizandoRuta.value) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(Modifier.size(10.dp))
+                                Text(
+                                    "Calculando por calles...",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            } else {
+                                Text(
+                                    "✨ Optimizar ruta",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
                     }
                 }
@@ -2015,7 +2113,7 @@ private fun PedidoAccionesDialog(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(52.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8F6464))
                         ) {
                             Text("Problema", fontWeight = FontWeight.Black)
                         }

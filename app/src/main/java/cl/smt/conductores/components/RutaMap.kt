@@ -73,6 +73,12 @@ data class RutaMapaInicio(
     val lng: Double
 )
 
+/** Punto de la geometría vial devuelta por OSRM. */
+data class RutaMapaCoordenada(
+    val lat: Double,
+    val lng: Double
+)
+
 private const val OPEN_FREE_MAP_DARK_STYLE =
     "https://tiles.openfreemap.org/styles/dark"
 
@@ -90,6 +96,7 @@ fun RutaMap(
     entregas: List<RutaMapaEntrega>,
     laboratorio: RutaMapaInicio?,
     rutaOptimizada: Boolean,
+    rutaGeometria: List<RutaMapaCoordenada> = emptyList(),
     modifier: Modifier = Modifier,
     onEntregaClick: (Int) -> Unit = {}
 ) {
@@ -207,6 +214,7 @@ fun RutaMap(
         entregas,
         laboratorio,
         rutaOptimizada,
+        rutaGeometria,
         mapLibreMap,
         styleLoaded
     ) {
@@ -218,6 +226,7 @@ fun RutaMap(
             entregas = entregas,
             laboratorio = laboratorio,
             rutaOptimizada = rutaOptimizada,
+            rutaGeometria = rutaGeometria,
             fitCamera = boundsKey != lastBoundsKey
         )
 
@@ -375,6 +384,7 @@ private fun updateSmtMap(
     entregas: List<RutaMapaEntrega>,
     laboratorio: RutaMapaInicio?,
     rutaOptimizada: Boolean,
+    rutaGeometria: List<RutaMapaCoordenada>,
     fitCamera: Boolean
 ) {
     val style = map.style ?: return
@@ -419,12 +429,18 @@ private fun updateSmtMap(
     (style.getSource(LAB_SOURCE) as? GeoJsonSource)
         ?.setGeoJson(FeatureCollection.fromFeatures(labFeatures))
 
-    val routePoints = buildList {
-        laboratorio?.let {
-            add(Point.fromLngLat(it.lng, it.lat))
+    val routePoints = if (rutaGeometria.size >= 2) {
+        rutaGeometria.map { punto ->
+            Point.fromLngLat(punto.lng, punto.lat)
         }
-        entregas.forEach {
-            add(Point.fromLngLat(it.lng, it.lat))
+    } else {
+        buildList {
+            laboratorio?.let {
+                add(Point.fromLngLat(it.lng, it.lat))
+            }
+            entregas.forEach {
+                add(Point.fromLngLat(it.lng, it.lat))
+            }
         }
     }
 
