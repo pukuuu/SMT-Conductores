@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.SMTConductores" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.SMTConductores" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">#00140D</item>
+        <item name="android:colorAccent">#00C853</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:statusBarColor">#00140D</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+
 </resources>

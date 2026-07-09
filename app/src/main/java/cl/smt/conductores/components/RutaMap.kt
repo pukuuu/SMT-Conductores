@@ -274,20 +274,6 @@ fun RutaMap(
                 )
             }
 
-            Text(
-                if (rutaOptimizada) "Ruta optimizada" else "Orden actual",
-                color = if (rutaOptimizada) Color(0xFF00E676) else Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(12.dp)
-                    .background(
-                        Color(0xDD020617),
-                        RoundedCornerShape(999.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 7.dp)
-            )
         }
     }
 }

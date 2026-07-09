@@ -7,8 +7,18 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,13 +31,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import cl.smt.conductores.data.SessionManager
 import cl.smt.conductores.data.SmtApi
 import cl.smt.conductores.data.SmtUser
 import cl.smt.conductores.screens.CrearRutaScreen
 import cl.smt.conductores.screens.DireccionesScreen
+import cl.smt.conductores.screens.EntregasV1Screen
+import cl.smt.conductores.screens.EntregasV2Screen
 import cl.smt.conductores.screens.LoginScreen
-import cl.smt.conductores.screens.PanelScreen
+import cl.smt.conductores.screens.MenuScreen
 import cl.smt.conductores.screens.PermisosScreen
 import cl.smt.conductores.screens.UpdateRequiredScreen
 import cl.smt.conductores.ui.theme.SMTConductoresTheme
@@ -36,8 +52,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         window.navigationBarColor = AndroidColor.BLACK
-        window.statusBarColor = AndroidColor.BLACK
+        window.statusBarColor = AndroidColor.parseColor("#00140D")
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
+
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
 
         setContent {
             SMTConductoresTheme {
@@ -89,11 +117,10 @@ fun AppRoot() {
 
     BackHandler(enabled = user != null) {
         when (screen) {
-            "crear_ruta",
+            "direcciones",
             "perfil",
-            "historial",
-            "direcciones" -> {
-                screen = "panel"
+            "historial" -> {
+                screen = "main"
             }
 
             "permisos",
@@ -102,8 +129,8 @@ fun AppRoot() {
                 // No cerrar app ni saltar permisos/actualización con botón atrás.
             }
 
-            "panel" -> {
-                // Por ahora no cerrar app desde el panel.
+            "main" -> {
+                // Por ahora no cerrar app desde el panel principal.
             }
         }
     }
@@ -135,28 +162,25 @@ fun AppRoot() {
             } else {
                 PermisosScreen(
                     onPermisosOk = {
-                        screen = "panel"
+                        screen = "main"
                     }
                 )
             }
         }
 
-        "panel" -> {
+        "main" -> {
             if (user == null) {
                 screen = "login"
             } else {
-                PanelScreen(
-                    onCrearRutaClick = {
-                        screen = "crear_ruta"
+                MainTabsScreen(
+                    onDireccionesClick = {
+                        screen = "direcciones"
                     },
                     onPerfilClick = {
                         screen = "perfil"
                     },
                     onHistorialClick = {
                         screen = "historial"
-                    },
-                    onDireccionesClick = {
-                        screen = "direcciones"
                     },
                     onCerrarSesionClick = {
                         SessionManager.clear(context)
@@ -172,31 +196,23 @@ fun AppRoot() {
             }
         }
 
-        "crear_ruta" -> {
-            CrearRutaScreen(
-                onBack = {
-                    screen = "panel"
-                }
-            )
-        }
-
         "direcciones" -> {
             DireccionesScreen(
                 onBack = {
-                    screen = "panel"
+                    screen = "main"
                 }
             )
         }
 
         "perfil" -> {
             PlaceholderScreen("Perfil pendiente") {
-                screen = "panel"
+                screen = "main"
             }
         }
 
         "historial" -> {
             PlaceholderScreen("Historial pendiente") {
-                screen = "panel"
+                screen = "main"
             }
         }
 
@@ -204,10 +220,124 @@ fun AppRoot() {
             screen = if (user == null) {
                 "login"
             } else {
-                "panel"
+                "main"
             }
         }
     }
+}
+
+@Composable
+private fun MainTabsScreen(
+    onDireccionesClick: () -> Unit,
+    onPerfilClick: () -> Unit,
+    onHistorialClick: () -> Unit,
+    onCerrarSesionClick: () -> Unit,
+    onSesionExpirada: () -> Unit
+) {
+    var tab by remember { mutableStateOf(MainTab.ENTREGAS_V1) }
+
+    Scaffold(
+        containerColor = Color(0xFF00140D),
+        contentWindowInsets = WindowInsets(0.dp),
+        bottomBar = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF020617))
+                    .navigationBarsPadding()
+            ) {
+                NavigationBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    containerColor = Color(0xFF020617),
+                    contentColor = Color.White,
+                    windowInsets = WindowInsets(0.dp)
+                ) {
+                    MainTab.values().forEach { item ->
+                        NavigationBarItem(
+                            selected = tab == item,
+                            onClick = { tab = item },
+                            icon = {
+                                Text(
+                                    text = item.icon,
+                                    fontSize = 14.sp,
+                                    color = if (tab == item) Color(0xFF00C853) else Color(0xFF9CA3AF)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = item.label,
+                                    fontSize = 8.sp,
+                                    color = if (tab == item) Color(0xFF00C853) else Color(0xFF9CA3AF)
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Color(0xFF00C853),
+                                selectedTextColor = Color(0xFF00C853),
+                                unselectedIconColor = Color(0xFF9CA3AF),
+                                unselectedTextColor = Color(0xFF9CA3AF),
+                                indicatorColor = Color(0x2200C853)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            when (tab) {
+                MainTab.ENTREGAS_V1 -> {
+                    EntregasV1Screen(
+                        onCrearRutaClick = { tab = MainTab.CREAR_RUTA },
+                        onPerfilClick = onPerfilClick,
+                        onHistorialClick = onHistorialClick,
+                        onDireccionesClick = onDireccionesClick,
+                        onCerrarSesionClick = onCerrarSesionClick,
+                        onSesionExpirada = onSesionExpirada
+                    )
+                }
+
+                MainTab.ENTREGAS_V2 -> {
+                    EntregasV2Screen(
+                        onCrearRutaClick = { tab = MainTab.CREAR_RUTA },
+                        onSesionExpirada = onSesionExpirada
+                    )
+                }
+
+                MainTab.CREAR_RUTA -> {
+                    CrearRutaScreen(
+                        onBack = {
+                            tab = MainTab.ENTREGAS_V2
+                        }
+                    )
+                }
+
+                MainTab.MENU -> {
+                    MenuScreen(
+                        onDireccionesClick = onDireccionesClick,
+                        onPerfilClick = onPerfilClick,
+                        onHistorialClick = onHistorialClick,
+                        onCerrarSesionClick = onCerrarSesionClick
+                    )
+                }
+            }
+        }
+    }
+}
+
+private enum class MainTab(
+    val label: String,
+    val icon: String
+) {
+    ENTREGAS_V1("Entregas v1", "📦"),
+    ENTREGAS_V2("Entregas v2", "🛣️"),
+    CREAR_RUTA("Crear ruta", "➕"),
+    MENU("Menú", "☰")
 }
 
 @Composable
